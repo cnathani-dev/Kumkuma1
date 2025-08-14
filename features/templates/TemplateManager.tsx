@@ -1,0 +1,193 @@
+
+import React, { useState, useMemo } from 'react';
+import { MenuTemplate, Catalog, AppCategory } from '../../types';
+import { useTemplates, useCatalogs, useAppCategories } from '../../App';
+import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
+import { Plus, Edit, Trash2, Save, X, FileText } from 'lucide-react';
+import { exportTemplateToPdf } from '../../lib/export';
+import { useItems } from '../../App';
+
+interface TemplateManagerProps {
+    canModify: boolean;
+    onAddClick: () => void;
+    onEditClick: (template: MenuTemplate) => void;
+}
+
+export const TemplateManager: React.FC<TemplateManagerProps> = ({ canModify, onAddClick, onEditClick }) => {
+    const { templates, deleteTemplate } = useTemplates();
+    const { catalogs } = useCatalogs();
+    const { items } = useItems();
+    const { categories } = useAppCategories();
+
+    const catalogMap = useMemo(() => new Map(catalogs.map(c => [c.id, c.name])), [catalogs]);
+
+    const handleDelete = async (id: string) => {
+        if (window.confirm("Are you sure? This cannot be undone.")) {
+            await deleteTemplate(id);
+        }
+    };
+    
+    const handleExport = (template: MenuTemplate) => {
+        const catalog = catalogs.find(c => c.id === template.catalogId);
+        if (!catalog) {
+            alert("Could not export: The catalog associated with this template could not be found.");
+            return;
+        }
+        exportTemplateToPdf(template, catalog, items, categories);
+    };
+
+    return (
+         <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <h3 className="text-2xl font-display font-bold text-primary-600 dark:text-primary-400">Templates</h3>
+                {canModify &&
+                    <div className="flex items-center gap-2">
+                        <button onClick={onAddClick} className={primaryButton}><Plus size={16}/> Add Template</button>
+                    </div>
+                }
+            </div>
+             <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
+                 <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                    {templates.map(template => (
+                        <li key={template.id} className="py-3 flex justify-between items-center">
+                            <div className="flex-grow cursor-pointer" onClick={() => onEditClick(template)}>
+                                <p className="font-bold">{template.name}</p>
+                                <p className="text-sm text-warm-gray-500">Catalog: {catalogMap.get(template.catalogId) || 'Unknown'}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => handleExport(template)} className={secondaryButton}><FileText size={16}/> Export</button>
+                                {canModify && <>
+                                    <button onClick={() => onEditClick(template)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Template">
+                                        <Edit size={16} className="text-primary-600" />
+                                    </button>
+                                    <button onClick={() => handleDelete(template.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete Template">
+                                        <Trash2 size={16} className="text-accent-500" />
+                                    </button>
+                                </>}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+                {templates.length === 0 && <p className="text-center py-8 text-warm-gray-500">No templates created yet.</p>}
+            </div>
+        </div>
+    );
+};
+
+
+interface TemplateEditorProps {
+    template: MenuTemplate | Partial<MenuTemplate>;
+    onCancel: () => void;
+    isReadOnly: boolean;
+}
+
+export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCancel, isReadOnly }) => {
+    const { addTemplate, updateTemplate } = useTemplates();
+    const { catalogs } = useCatalogs();
+    const { categories } = useAppCategories();
+
+    const [name, setName] = useState(template.name || '');
+    const [catalogId, setCatalogId] = useState(template.catalogId || '');
+    const [rules, setRules] = useState<Record<string, number>>(template.rules || {});
+    const [showVegOnly, setShowVegOnly] = useState(false);
+    
+    const rootCategories = useMemo(() => {
+        return categories.filter(c => {
+            const isRoot = c.parentId === null;
+            const isVeg = showVegOnly ? c.type === 'veg' : true;
+            return isRoot && isVeg;
+        }).sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+    }, [categories, showVegOnly]);
+    
+    const handleRuleChange = (categoryId: string, value: string) => {
+        if (isReadOnly) return;
+        const numValue = parseInt(value, 10);
+        setRules(prev => {
+            const newRules = { ...prev };
+            if (isNaN(numValue) || numValue <= 0) {
+                delete newRules[categoryId];
+            } else {
+                newRules[categoryId] = numValue;
+            }
+            return newRules;
+        });
+    };
+    
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (isReadOnly) return;
+        if(!catalogId) {
+            alert('Please select a catalog.');
+            return;
+        }
+        const templateData = { name, catalogId, rules };
+        try {
+            if('id' in template) {
+                await updateTemplate({ ...template, ...templateData } as MenuTemplate);
+            } else {
+                await addTemplate(templateData);
+            }
+            onCancel();
+        } catch(e) {
+            alert(`Error: ${e}`);
+        }
+    };
+    
+    return (
+        <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700">
+                <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                    {isReadOnly ? 'View Template' : ('id' in template ? 'Edit Template' : 'Create New Template')}
+                </h2>
+                <div className="flex items-center gap-2">
+                    <button type="button" onClick={onCancel} className={secondaryButton}><X size={16}/> {isReadOnly ? 'Close' : 'Cancel'}</button>
+                    {!isReadOnly && <button type="submit" className={primaryButton}><Save size={18}/> Save Template</button>}
+                </div>
+            </div>
+
+             <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 gap-6">
+                <input type="text" placeholder="Template Name" value={name} onChange={e => setName(e.target.value)} required readOnly={isReadOnly} className={inputStyle} />
+                <select value={catalogId} onChange={e => setCatalogId(e.target.value)} required disabled={isReadOnly} className={inputStyle}>
+                    <option value="" disabled>Select a Catalog</option>
+                    {catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+            </div>
+            
+            <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md">
+                 <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-xl font-bold">Category Rules</h4>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id="vegOnlyFilter"
+                            checked={showVegOnly}
+                            onChange={(e) => setShowVegOnly(e.target.checked)}
+                            disabled={isReadOnly}
+                            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <label htmlFor="vegOnlyFilter" className="text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">
+                            Show Veg Categories Only
+                        </label>
+                    </div>
+                </div>
+                <p className="text-sm text-warm-gray-500 mb-4">For each root category, specify the maximum number of items a user can select. Leave blank or 0 to exclude the category.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {rootCategories.map(cat => (
+                        <div key={cat.id}>
+                            <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">{cat.name}</label>
+                            <input
+                                type="number"
+                                value={rules[cat.id] || ''}
+                                onChange={e => handleRuleChange(cat.id, e.target.value)}
+                                placeholder="Max items"
+                                min="0"
+                                readOnly={isReadOnly}
+                                className={inputStyle}
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </form>
+    );
+};

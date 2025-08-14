@@ -1,0 +1,100 @@
+
+/**
+ * Recursively removes properties with `undefined` values from an object.
+ * This is useful for preparing objects to be saved to Firestore, which doesn't allow `undefined`.
+ */
+export const cleanForFirebase = (obj: any): any => {
+    if (obj === null || obj === undefined) {
+        return obj;
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(item => cleanForFirebase(item));
+    }
+    // Handle Firestore Timestamps and other special objects if necessary, but for now this is fine.
+    if (typeof obj === 'object' && !(obj instanceof Date)) {
+        const newObj: { [key: string]: any } = {};
+        for (const key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                const value = obj[key];
+                if (value !== undefined) {
+                    newObj[key] = cleanForFirebase(value);
+                }
+            }
+        }
+        return newObj;
+    }
+    return obj;
+};
+
+/**
+ * Creates a deep copy of an object. This is safer than JSON.parse(JSON.stringify(obj))
+ * as it handles more types and avoids issues with proxies or circular refs from Firestore.
+ */
+export const deepClone = <T>(obj: T): T => {
+    if (obj === null || typeof obj !== 'object') {
+        return obj;
+    }
+
+    if (obj instanceof Date) {
+        return new Date(obj.getTime()) as any;
+    }
+
+    if (Array.isArray(obj)) {
+        const arrCopy: any[] = [];
+        for (let i = 0; i < obj.length; i++) {
+            arrCopy[i] = deepClone(obj[i]);
+        }
+        return arrCopy as any;
+    }
+
+    const objCopy: { [key: string]: any } = {};
+    for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+            objCopy[key] = deepClone((obj as any)[key]);
+        }
+    }
+    return objCopy as T;
+};
+
+
+/**
+ * Converts a 'YYYY-MM-DD' string into a Date object, correctly interpreting it in the user's local timezone.
+ * This avoids timezone-related "off-by-one-day" errors.
+ * @param dateString A string in 'YYYY-MM-DD' format.
+ * @returns A Date object representing midnight in the local timezone.
+ */
+export const yyyyMMDDToDate = (dateString: string): Date => {
+  const [year, month, day] = dateString.split('-').map(Number);
+  // Month is 0-indexed in JavaScript Date constructor
+  return new Date(year, month - 1, day);
+};
+
+/**
+ * Formats a 'YYYY-MM-DD' string for display, ensuring the correct date is shown regardless of timezone.
+ * @param dateString A string in 'YYYY-MM-DD' format.
+ * @param options Intl.DateTimeFormatOptions to customize the output.
+ * @returns A formatted date string (e.g., "July 25, 2024").
+ */
+export const formatYYYYMMDD = (dateString: string | undefined | null, options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' }): string => {
+  if (!dateString) return 'N/A';
+  try {
+    const date = yyyyMMDDToDate(dateString);
+    // By creating a local date and formatting it locally, we ensure what you see is what you selected.
+    return date.toLocaleDateString('en-US', options);
+  } catch (e) {
+    console.error("Error formatting date:", dateString, e);
+    return "Invalid Date";
+  }
+};
+
+/**
+ * Converts a Date object to a 'YYYY-MM-DD' string. This is the standardized format for storing dates.
+ * @param date A Date object.
+ * @returns A string in 'YYYY-MM-DD' format.
+ */
+export const dateToYYYYMMDD = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
