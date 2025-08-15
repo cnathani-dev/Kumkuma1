@@ -98,6 +98,7 @@ export interface Catalog {
   id: string;
   name: string;
   description: string;
+  group?: string;
   // Key: categoryId, value: array of itemIds
   itemIds: Record<string, string[]>;
 }
@@ -106,6 +107,7 @@ export interface MenuTemplate {
   id:string;
   name: string;
   catalogId: string;
+  group?: string;
   // key is category ID, value is max number of items
   rules: Record<string, number>;
 }

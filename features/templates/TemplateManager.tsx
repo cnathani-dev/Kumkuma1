@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useMemo } from 'react';
 import { MenuTemplate, Catalog, AppCategory } from '../../types';
 import { useTemplates, useCatalogs, useAppCategories } from '../../App';
@@ -20,6 +22,21 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ canModify, onA
     const { categories } = useAppCategories();
 
     const catalogMap = useMemo(() => new Map(catalogs.map(c => [c.id, c.name])), [catalogs]);
+    
+    const groupedTemplates = useMemo(() => {
+        const groups: Record<string, MenuTemplate[]> = {};
+        templates.forEach(template => {
+            const groupName = template.group || 'Uncategorized';
+            if (!groups[groupName]) {
+                groups[groupName] = [];
+            }
+            groups[groupName].push(template);
+        });
+        Object.values(groups).forEach(group => group.sort((a, b) => a.name.localeCompare(b.name)));
+        return groups;
+    }, [templates]);
+
+    const sortedGroupNames = useMemo(() => Object.keys(groupedTemplates).sort(), [groupedTemplates]);
 
     const handleDelete = async (id: string) => {
         if (window.confirm("Are you sure? This cannot be undone.")) {
@@ -47,28 +64,36 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ canModify, onA
                 }
             </div>
              <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
-                 <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
-                    {templates.map(template => (
-                        <li key={template.id} className="py-3 flex justify-between items-center">
-                            <div className="flex-grow cursor-pointer" onClick={() => onEditClick(template)}>
-                                <p className="font-bold">{template.name}</p>
-                                <p className="text-sm text-warm-gray-500">Catalog: {catalogMap.get(template.catalogId) || 'Unknown'}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button onClick={() => handleExport(template)} className={secondaryButton}><FileText size={16}/> Export</button>
-                                {canModify && <>
-                                    <button onClick={() => onEditClick(template)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Template">
-                                        <Edit size={16} className="text-primary-600" />
-                                    </button>
-                                    <button onClick={() => handleDelete(template.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete Template">
-                                        <Trash2 size={16} className="text-accent-500" />
-                                    </button>
-                                </>}
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-                {templates.length === 0 && <p className="text-center py-8 text-warm-gray-500">No templates created yet.</p>}
+                {sortedGroupNames.length === 0 ? (
+                    <p className="text-center py-8 text-warm-gray-500">No templates created yet.</p>
+                ) : (
+                    sortedGroupNames.map(groupName => (
+                        <div key={groupName} className="mb-6 last:mb-0">
+                            <h4 className="text-xl font-semibold text-primary-600 dark:text-primary-400 mb-2 p-2 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-md">{groupName}</h4>
+                            <ul className="pl-4 divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                                {groupedTemplates[groupName].map(template => (
+                                    <li key={template.id} className="py-3 flex justify-between items-center">
+                                        <div className="flex-grow cursor-pointer" onClick={() => onEditClick(template)}>
+                                            <p className="font-bold">{template.name}</p>
+                                            <p className="text-sm text-warm-gray-500">Catalog: {catalogMap.get(template.catalogId) || 'Unknown'}</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={() => handleExport(template)} className={secondaryButton}><FileText size={16}/> Export</button>
+                                            {canModify && <>
+                                                <button onClick={() => onEditClick(template)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Template">
+                                                    <Edit size={16} className="text-primary-600" />
+                                                </button>
+                                                <button onClick={() => handleDelete(template.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete Template">
+                                                    <Trash2 size={16} className="text-accent-500" />
+                                                </button>
+                                            </>}
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))
+                )}
             </div>
         </div>
     );
@@ -82,14 +107,17 @@ interface TemplateEditorProps {
 }
 
 export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCancel, isReadOnly }) => {
-    const { addTemplate, updateTemplate } = useTemplates();
+    const { templates, addTemplate, updateTemplate } = useTemplates();
     const { catalogs } = useCatalogs();
     const { categories } = useAppCategories();
 
     const [name, setName] = useState(template.name || '');
     const [catalogId, setCatalogId] = useState(template.catalogId || '');
+    const [group, setGroup] = useState(template.group || '');
     const [rules, setRules] = useState<Record<string, number>>(template.rules || {});
     const [showVegOnly, setShowVegOnly] = useState(false);
+
+    const templateGroups = useMemo(() => Array.from(new Set(templates.map(t => t.group).filter(Boolean))), [templates]);
     
     const rootCategories = useMemo(() => {
         return categories.filter(c => {
@@ -120,7 +148,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCanc
             alert('Please select a catalog.');
             return;
         }
-        const templateData = { name, catalogId, rules };
+        const templateData = { name, catalogId, group, rules };
         try {
             if('id' in template) {
                 await updateTemplate({ ...template, ...templateData } as MenuTemplate);
@@ -145,11 +173,15 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCanc
                 </div>
             </div>
 
-             <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 gap-6">
+             <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-3 gap-6">
                 <input type="text" placeholder="Template Name" value={name} onChange={e => setName(e.target.value)} required readOnly={isReadOnly} className={inputStyle} />
+                <input type="text" placeholder="Group (e.g., Wedding, Corporate)" value={group} onChange={e => setGroup(e.target.value)} readOnly={isReadOnly} className={inputStyle} list="template-groups"/>
+                <datalist id="template-groups">
+                    {templateGroups.map(g => <option key={g} value={g} />)}
+                </datalist>
                 <select value={catalogId} onChange={e => setCatalogId(e.target.value)} required disabled={isReadOnly} className={inputStyle}>
                     <option value="" disabled>Select a Catalog</option>
-                    {catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {catalogs.slice().sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
             </div>
             

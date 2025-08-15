@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { useAuditLogs, useUsers, useClients } from '../../App';
 import { inputStyle } from '../../components/common/styles';
@@ -33,7 +34,7 @@ export const AuditLogViewer = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 p-4 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-lg">
                 <select value={userFilter} onChange={e => setUserFilter(e.target.value)} className={inputStyle}>
                     <option value="">All Users</option>
-                    {users.map(user => <option key={user.id} value={user.id}>{user.username}</option>)}
+                    {users.slice().sort((a,b) => a.username.localeCompare(b.username)).map(user => <option key={user.id} value={user.id}>{user.username}</option>)}
                 </select>
                 <select value={actionFilter} onChange={e => setActionFilter(e.target.value)} className={inputStyle}>
                     <option value="">All Actions</option>

@@ -1,6 +1,7 @@
 
 
-import React, { useState } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { Event, EventSession, EventState, MenuTemplate, LocationSetting, MenuSelectionStatus } from '../../types';
 import { useTemplates, useLocations, useEventTypes } from '../../App';
 import { inputStyle, primaryButton, secondaryButton } from '../common/styles';
@@ -30,6 +31,21 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
     const fifteenDaysAgo = new Date();
     fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
     const minDate = dateToYYYYMMDD(fifteenDaysAgo);
+
+    const groupedTemplates = useMemo(() => {
+        const groups: Record<string, MenuTemplate[]> = {};
+        templates.forEach(template => {
+            const groupName = template.group || 'Uncategorized';
+            if (!groups[groupName]) {
+                groups[groupName] = [];
+            }
+            groups[groupName].push(template);
+        });
+        Object.values(groups).forEach(group => group.sort((a, b) => a.name.localeCompare(b.name)));
+        return groups;
+    }, [templates]);
+
+    const sortedGroupNames = useMemo(() => Object.keys(groupedTemplates).sort(), [groupedTemplates]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -116,7 +132,13 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
                     <select value={templateId} onChange={e => setTemplateId(e.target.value)} className={inputStyle} disabled={isReadOnly}>
                         <option value="">-- No Template (Custom Menu) --</option>
                         <option value="NO_FOOD">-- No Food Event --</option>
-                        {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        {sortedGroupNames.map(groupName => (
+                            <optgroup key={groupName} label={groupName.toUpperCase()}>
+                                {groupedTemplates[groupName].map(t => (
+                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                            </optgroup>
+                        ))}
                     </select>
                 </div>
                 <div>

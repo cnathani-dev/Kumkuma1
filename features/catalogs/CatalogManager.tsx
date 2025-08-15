@@ -1,3 +1,6 @@
+
+
+
 import React, { useState, useMemo } from 'react';
 import { Catalog, Item, AppCategory } from '../../types';
 import { useCatalogs, useItems, useAppCategories } from '../../App';
@@ -13,6 +16,22 @@ interface CatalogManagerProps {
 
 export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAddClick, onEditClick }) => {
     const { catalogs, deleteCatalog } = useCatalogs();
+
+    const groupedCatalogs = useMemo(() => {
+        const groups: Record<string, Catalog[]> = {};
+        catalogs.forEach(catalog => {
+            const groupName = catalog.group || 'Uncategorized';
+            if (!groups[groupName]) {
+                groups[groupName] = [];
+            }
+            groups[groupName].push(catalog);
+        });
+        // Sort catalogs within each group
+        Object.values(groups).forEach(group => group.sort((a, b) => a.name.localeCompare(b.name)));
+        return groups;
+    }, [catalogs]);
+
+    const sortedGroupNames = useMemo(() => Object.keys(groupedCatalogs).sort(), [groupedCatalogs]);
 
     const handleDelete = async (catalogId: string) => {
         if (window.confirm("Are you sure you want to delete this catalog? This action cannot be undone.")) {
@@ -37,27 +56,35 @@ export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAdd
             </div>
             
             <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
-                 <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
-                    {catalogs.map(catalog => (
-                        <li key={catalog.id} className="py-3 flex justify-between items-center">
-                            <div className="flex-grow cursor-pointer" onClick={() => onEditClick(catalog)}>
-                                <p className="font-bold">{catalog.name}</p>
-                                <p className="text-sm text-warm-gray-500">{catalog.description}</p>
-                            </div>
-                            {canModify &&
-                                <div className="flex items-center gap-1">
-                                    <button onClick={() => onEditClick(catalog)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Catalog">
-                                        <Edit size={16} className="text-primary-600" />
-                                    </button>
-                                    <button onClick={() => handleDelete(catalog.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete Catalog">
-                                        <Trash2 size={16} className="text-accent-500" />
-                                    </button>
-                                </div>
-                            }
-                        </li>
-                    ))}
-                </ul>
-                {catalogs.length === 0 && <p className="text-center py-8 text-warm-gray-500">No catalogs created yet.</p>}
+                {sortedGroupNames.length === 0 ? (
+                    <p className="text-center py-8 text-warm-gray-500">No catalogs created yet.</p>
+                ) : (
+                    sortedGroupNames.map(groupName => (
+                        <div key={groupName} className="mb-6 last:mb-0">
+                            <h4 className="text-xl font-semibold text-primary-600 dark:text-primary-400 mb-2 p-2 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-md">{groupName}</h4>
+                            <ul className="pl-4 divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                                {groupedCatalogs[groupName].map(catalog => (
+                                    <li key={catalog.id} className="py-3 flex justify-between items-center">
+                                        <div className="flex-grow cursor-pointer" onClick={() => onEditClick(catalog)}>
+                                            <p className="font-bold">{catalog.name}</p>
+                                            <p className="text-sm text-warm-gray-500">{catalog.description}</p>
+                                        </div>
+                                        {canModify &&
+                                            <div className="flex items-center gap-1">
+                                                <button onClick={() => onEditClick(catalog)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Catalog">
+                                                    <Edit size={16} className="text-primary-600" />
+                                                </button>
+                                                <button onClick={() => handleDelete(catalog.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete Catalog">
+                                                    <Trash2 size={16} className="text-accent-500" />
+                                                </button>
+                                            </div>
+                                        }
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))
+                )}
             </div>
         </div>
     );
@@ -70,18 +97,21 @@ interface CatalogEditorProps {
 }
 
 export const CatalogEditor: React.FC<CatalogEditorProps> = ({ catalog, onCancel, isReadOnly }) => {
-    const { addCatalog, updateCatalog } = useCatalogs();
+    const { catalogs, addCatalog, updateCatalog } = useCatalogs();
     const { items: allItems } = useItems();
     const { categories } = useAppCategories();
     
     const [name, setName] = useState(catalog?.name || '');
     const [description, setDescription] = useState(catalog?.description || '');
+    const [group, setGroup] = useState(catalog?.group || '');
     const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(() => {
         const ids = catalog?.itemIds ? Object.values(catalog.itemIds).flat() : [];
         return new Set(ids);
     });
     
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+
+    const catalogGroups = useMemo(() => Array.from(new Set(catalogs.map(c => c.group).filter(Boolean))), [catalogs]);
 
     const itemsInCategory = useMemo(() => {
         if (!selectedCategoryId) return [];
@@ -130,7 +160,7 @@ export const CatalogEditor: React.FC<CatalogEditorProps> = ({ catalog, onCancel,
             }
         });
 
-        const catalogData = { name, description, itemIds: itemIdsByCat };
+        const catalogData = { name, description, group, itemIds: itemIdsByCat };
 
         try {
             if ('id' in catalog) {
@@ -157,7 +187,13 @@ export const CatalogEditor: React.FC<CatalogEditorProps> = ({ catalog, onCancel,
             </div>
 
             <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md space-y-4 flex-shrink-0">
-                <input type="text" placeholder="Catalog Name" value={name} onChange={e => setName(e.target.value)} required readOnly={isReadOnly} className={inputStyle} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input type="text" placeholder="Catalog Name" value={name} onChange={e => setName(e.target.value)} required readOnly={isReadOnly} className={inputStyle} />
+                    <input type="text" placeholder="Group (e.g., Wedding, Corporate)" value={group} onChange={e => setGroup(e.target.value)} readOnly={isReadOnly} className={inputStyle} list="catalog-groups" />
+                    <datalist id="catalog-groups">
+                        {catalogGroups.map(g => <option key={g} value={g} />)}
+                    </datalist>
+                </div>
                 <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} readOnly={isReadOnly} className={inputStyle} rows={2} />
             </div>
 

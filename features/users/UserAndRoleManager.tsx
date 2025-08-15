@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { User, Role, AppPermissions, Client, LocationSetting, PermissionLevel, UserRole } from '../../types';
 import { useUsers, useRoles, useClients, useLocations } from '../../App';
@@ -120,7 +121,7 @@ const UserTable = ({ title, users, onAdd, onEdit, onDelete, canModify, roles }: 
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
-                    {users.map(user => {
+                    {users.slice().sort((a,b) => a.username.localeCompare(b.username)).map(user => {
                         const roleName = user.role === 'staff' ? roles.find(r => r.id === user.roleId)?.name : (user.role.charAt(0).toUpperCase() + user.role.slice(1));
                         return (
                             <tr key={user.id}>
@@ -155,7 +156,7 @@ const RoleList = ({ roles, onAdd, onEdit, onDelete, canModify }: { roles: Role[]
             {canModify && <button onClick={onAdd} className={primaryButton}>Add Role</button>}
         </div>
         <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
-            {roles.map(role => (
+            {roles.slice().sort((a,b) => a.name.localeCompare(b.name)).map(role => (
                 <li key={role.id} className="py-2 flex justify-between items-center">
                     <span>{role.name}</span>
                     {canModify && 
@@ -222,7 +223,7 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
                 <>
                     <select value={roleId} onChange={e=>setRoleId(e.target.value)} required className={inputStyle}>
                          <option value="">-- Assign a Role --</option>
-                        {roles.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+                        {roles.slice().sort((a,b) => a.name.localeCompare(b.name)).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
                     </select>
                     <div>
                         <label className="block text-sm font-medium">Managed Locations (Optional)</label>
