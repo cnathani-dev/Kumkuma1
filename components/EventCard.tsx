@@ -1,11 +1,11 @@
 
 
 import React, { useMemo } from 'react';
-import { useTemplates, useEvents, useClients } from '../../App';
-import { useAuth } from '../../contexts/AuthContext';
-import { Event, EventState } from '../../types';
+import { useTemplates, useEvents, useClients } from '../contexts/AppContexts';
+import { useAuth, useUserPermissions } from '../contexts/AuthContext';
+import { Event, EventState } from '../types';
 import { FileEdit, Salad, Banknote, Lock, Unlock, Edit, Trash2, BadgeHelp, BadgeCheck, BadgeX, Calendar, Clock, MapPin, Users, ConciergeBell, ChefHat, Copy, BadgeAlert, CheckCircle, XCircle, Ban } from 'lucide-react';
-import { formatYYYYMMDD } from '../../lib/utils';
+import { formatDateRange } from '../lib/utils';
 
 const secondaryButton = "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-warm-gray-300 dark:border-warm-gray-600 hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700 disabled:opacity-50 disabled:cursor-not-allowed";
 const iconButton = (colorClass: string) => `p-2 rounded-full ${colorClass} transition-colors disabled:opacity-50 disabled:cursor-not-allowed`;
@@ -19,15 +19,17 @@ interface EventCardProps {
     canModify: boolean;
     canAccessFinances: boolean;
     showClientName?: boolean;
+    onClientClick?: () => void;
     onStateChange: (event: Event, newState: EventState) => void;
     onRequestCancel: (event: Event) => void;
 }
 
-export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, onDuplicate, onNavigate, canModify, canAccessFinances, showClientName = false, onStateChange, onRequestCancel }) => {
+export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, onDuplicate, onNavigate, canModify, canAccessFinances, showClientName = false, onClientClick, onStateChange, onRequestCancel }) => {
     const { updateEvent } = useEvents();
     const { templates } = useTemplates();
     const { clients } = useClients();
     const { currentUser } = useAuth();
+    const permissions = useUserPermissions();
 
     const clientName = useMemo(() => {
         if (!showClientName) return '';
@@ -75,14 +77,20 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, o
                 <div>
                     {showClientName ? (
                         <>
-                            <h4 className="font-bold text-lg text-warm-gray-800 dark:text-warm-gray-200">{clientName}</h4>
+                            {onClientClick ? (
+                                <button onClick={onClientClick} className="font-bold text-lg text-warm-gray-800 dark:text-warm-gray-200 text-left hover:underline focus:outline-none">
+                                    {clientName}
+                                </button>
+                            ) : (
+                                <h4 className="font-bold text-lg text-warm-gray-800 dark:text-warm-gray-200">{clientName}</h4>
+                            )}
                             <p className="text-sm font-semibold text-primary-600 dark:text-primary-400">{event.eventType}</p>
                         </>
                     ) : (
                         <h4 className="font-bold text-lg text-warm-gray-800 dark:text-warm-gray-200">{event.eventType}</h4>
                     )}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-warm-gray-500 mt-1">
-                        <span className="flex items-center gap-1.5"><Calendar size={14}/> {formatYYYYMMDD(event.date)}</span>
+                        <span className="flex items-center gap-1.5"><Calendar size={14}/> {formatDateRange(event.startDate, event.endDate)}</span>
                         <span className="flex items-center gap-1.5"><Clock size={14}/> {event.session.charAt(0).toUpperCase() + event.session.slice(1)}</span>
                         <span className="flex items-center gap-1.5"><MapPin size={14}/> {event.location}</span>
                         <span className="flex items-center gap-1.5"><Users size={14}/> {event.pax || 0} PAX</span>
@@ -118,7 +126,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, o
                             </button>
                         </>
                     )}
-                     {event.state === 'confirmed' && (
+                     {event.state === 'confirmed' && permissions?.allowEventCancellation && (
                         <button onClick={() => onRequestCancel(event)} className={iconButton('hover:bg-red-100 dark:hover:bg-red-800')} title="Cancel Event">
                             <Ban size={16} className="text-red-600"/>
                         </button>

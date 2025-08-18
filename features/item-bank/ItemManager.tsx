@@ -1,16 +1,35 @@
 
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useItems, useAppCategories } from '../../App';
+import { useItems, useAppCategories } from '../../contexts/AppContexts';
 import { Item, AppCategory, ItemType, PermissionLevel } from '../../types';
 import Modal from '../../components/Modal';
 import { primaryButton, secondaryButton, inputStyle, iconButton, dangerButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save, X, GripVertical, ListOrdered, ArrowUpAZ, ArrowDownAZ, Merge, Move } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, X, GripVertical, ListOrdered, ArrowUpAZ, ArrowDownAZ, Merge, Move, Leaf, Egg, Beef, Shrimp, Fish } from 'lucide-react';
 import { generateCategoryOptions } from '../../lib/ui-helpers';
 import { CategoryTree } from '../../components/CategoryTree';
 import { ServiceArticleAssignment } from './ServiceArticleAssignment';
 import { CookingEstimates } from './CookingEstimates';
 import { ItemAccompanimentAssignment } from './ItemAccompanimentAssignment';
+
+const ItemTypeIcon = ({ type }: { type: ItemType }) => {
+    switch (type) {
+        case 'veg':
+            return <span title="Veg"><Leaf size={14} className="text-green-600 flex-shrink-0" /></span>;
+        case 'egg':
+            return <span title="Egg"><Egg size={14} className="text-amber-600 flex-shrink-0" /></span>;
+        case 'chicken':
+        case 'mutton':
+        case 'natukodi':
+            return <span title="Non-Veg (Meat)"><Beef size={14} className="text-red-600 flex-shrink-0" /></span>;
+        case 'prawns':
+            return <span title="Prawns"><Shrimp size={14} className="text-pink-600 flex-shrink-0" /></span>;
+        case 'fish':
+            return <span title="Fish"><Fish size={14} className="text-blue-600 flex-shrink-0" /></span>;
+        case 'other':
+        default:
+            return null;
+    }
+};
 
 type ModalState = 
     | { type: 'category', data: AppCategory | Partial<AppCategory> | null }
@@ -481,7 +500,10 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
                                                 {canModify && <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" checked={selectedItemIds.has(item.id)} onChange={e => handleItemSelection(item.id, e.target.checked)}/>}
                                                 {canModify && sortOrder === 'rank' && <GripVertical size={16} className="cursor-move text-warm-gray-400"/>}
                                                 <div>
-                                                    <p className="font-semibold">{item.name}</p>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <p className="font-semibold">{item.name}</p>
+                                                        <ItemTypeIcon type={item.type} />
+                                                    </div>
                                                     <p className="text-sm text-warm-gray-500">{item.description}</p>
                                                 </div>
                                             </div>

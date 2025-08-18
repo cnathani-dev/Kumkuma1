@@ -1,33 +1,16 @@
-
-
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Event, EventSession, EventState, Client } from '../../types';
-import { useLocations } from '../../App';
+import { useLocations, useMuhurthamDates } from '../../contexts/AppContexts';
 import { secondaryButton } from '../../components/common/styles';
-import { dateToYYYYMMDD } from '../../lib/utils';
-
-const sessionIndicator = (session: EventSession) => {
-    const config = {
-        breakfast: { char: 'B', color: 'bg-blue-200 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' },
-        lunch: { char: 'L', color: 'bg-yellow-200 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300' },
-        dinner: { char: 'D', color: 'bg-indigo-200 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300' },
-    }[session];
-
-    return (
-        <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm ${config.color} border border-black/20 dark:border-white/20`}>
-            {config.char}
-        </div>
-    )
-}
+import { dateToYYYYMMDD, yyyyMMDDToDate, formatYYYYMMDD } from '../../lib/utils';
 
 const statusColors: Record<EventState, string> = {
-    lead: 'bg-yellow-400',
-    confirmed: 'bg-green-500',
-    lost: 'bg-red-500',
-    cancelled: 'bg-gray-400',
+    lead: '#facc15', // yellow-400
+    confirmed: '#22c55e', // green-500
+    lost: '#ef4444', // red-500
+    cancelled: '#a3a3a3', // warm-gray-400
 };
-
 
 export const CalendarView = ({ events, onDateSelect, clients }: { 
     events: Event[], 
@@ -35,40 +18,23 @@ export const CalendarView = ({ events, onDateSelect, clients }: {
     clients: Client[],
 }) => {
     const { locations } = useLocations();
+    const { muhurthamDates, addMuhurthamDate, deleteMuhurthamDateByDate } = useMuhurthamDates();
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, date: string } | null>(null);
 
     const clientMap = useMemo(() => new Map(clients.map(c => [c.id, c.name])), [clients]);
+    const locationColorMap = useMemo(() => new Map(locations.map(loc => [loc.name, loc.color || '#fff8e1'])), [locations]);
+    const muhurthamDatesSet = useMemo(() => new Set(muhurthamDates.map(d => d.date)), [muhurthamDates]);
 
-    const locationColorMap = useMemo(() => {
-        const map = new Map<string, string>();
-        locations.forEach(loc => {
-            if (loc.name && loc.color) {
-                map.set(loc.name, loc.color);
-            }
-        });
-        return map;
-    }, [locations]);
+    const changeMonth = (offset: number) => {
+        setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+    };
 
-    const startOfMonth = useMemo(() => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1), [currentDate]);
-    const endOfMonth = useMemo(() => new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0), [currentDate]);
-
-    const daysInMonth = useMemo(() => {
-        const days = [];
-        const dayOfWeek = startOfMonth.getDay();
-        for (let i = 0; i < dayOfWeek; i++) {
-            days.push(null);
-        }
-        for (let i = 1; i <= endOfMonth.getDate(); i++) {
-            days.push(new Date(currentDate.getFullYear(), currentDate.getMonth(), i));
-        }
-        return days;
-    }, [startOfMonth, endOfMonth, currentDate]);
-    
     const handleLocationToggle = (locationName: string) => {
         setSelectedLocations(prev => {
             const newSet = new Set(prev);
-            if(locationName === 'ALL') {
+            if (locationName === 'ALL') {
                 newSet.clear();
             } else if (newSet.has(locationName)) {
                 newSet.delete(locationName);
@@ -83,29 +49,132 @@ export const CalendarView = ({ events, onDateSelect, clients }: {
         if (selectedLocations.size === 0) return events;
         return events.filter(event => selectedLocations.has(event.location));
     }, [events, selectedLocations]);
-    
-    const eventsByDate = useMemo(() => {
-        const grouped: Record<string, Event[]> = {};
-        filteredEvents.forEach(event => {
-            const dateKey = event.date; // event.date is already 'YYYY-MM-DD' and timezone-agnostic
-            if (!grouped[dateKey]) {
-                grouped[dateKey] = [];
-            }
-            grouped[dateKey].push(event);
+
+    const { monthGrid, calendarStart, calendarEnd } = useMemo(() => {
+        const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        const gridStart = new Date(startOfMonth);
+        gridStart.setDate(gridStart.getDate() - startOfMonth.getDay());
+        
+        const grid = Array.from({ length: 42 }, (_, i) => {
+            const day = new Date(gridStart);
+            day.setDate(day.getDate() + i);
+            return day;
         });
-        return grouped;
+        
+        return { monthGrid: grid, calendarStart: grid[0], calendarEnd: grid[41] };
+    }, [currentDate]);
+
+    const singleDayEventsByDate = useMemo(() => {
+        const map = new Map<string, Event[]>();
+        filteredEvents.forEach(event => {
+            if (!event.endDate || event.startDate === event.endDate) {
+                const dateKey = event.startDate;
+                if (!map.has(dateKey)) {
+                    map.set(dateKey, []);
+                }
+                map.get(dateKey)!.push(event);
+            }
+        });
+        return map;
     }, [filteredEvents]);
 
-    const changeMonth = (offset: number) => {
-        setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
-    };
+    const weeklyLanes = useMemo(() => {
+        const lanes: { event: Event; startCol: number; span: number; }[][][] = Array(6).fill(0).map(() => []);
 
-    const allLocationOptions = useMemo(() => {
-        return locations.sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
-    }, [locations]);
+        const eventsInView = filteredEvents
+            .filter(event => {
+                // Only process multi-day events for spanning
+                if (!event.endDate || event.startDate === event.endDate) return false;
+                
+                const eventStart = yyyyMMDDToDate(event.startDate);
+                const eventEnd = yyyyMMDDToDate(event.endDate);
+                return eventStart <= calendarEnd && eventEnd >= calendarStart;
+            })
+            .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+        for (const event of eventsInView) {
+            const eventStart = yyyyMMDDToDate(event.startDate);
+            const eventEnd = event.endDate ? yyyyMMDDToDate(event.endDate) : eventStart;
+            
+            let currentDay = new Date(eventStart > calendarStart ? eventStart : calendarStart);
+            
+            while (currentDay <= eventEnd && currentDay <= calendarEnd) {
+                const weekIndex = Math.floor((currentDay.getTime() - monthGrid[0].getTime()) / (1000 * 3600 * 24 * 7));
+                if (weekIndex < 0 || weekIndex >= 6) break;
+
+                const startOfWeek = monthGrid[weekIndex * 7];
+                const endOfWeek = monthGrid[weekIndex * 7 + 6];
+
+                const segmentStart = currentDay > startOfWeek ? currentDay : startOfWeek;
+                const segmentEnd = eventEnd < endOfWeek ? eventEnd : endOfWeek;
+                
+                const startCol = segmentStart.getDay();
+                const span = Math.round((segmentEnd.getTime() - segmentStart.getTime()) / (1000 * 3600 * 24)) + 1;
+                
+                let placed = false;
+                for (let i = 0; i < lanes[weekIndex].length; i++) {
+                    const lane = lanes[weekIndex][i];
+                    if (!lane.some(s => startCol < s.startCol + s.span && startCol + span > s.startCol)) {
+                        lane.push({ event, startCol, span });
+                        placed = true;
+                        break;
+                    }
+                }
+                
+                if (!placed) {
+                    lanes[weekIndex].push([{ event, startCol, span }]);
+                }
+
+                currentDay = new Date(segmentEnd);
+                currentDay.setDate(currentDay.getDate() + 1);
+            }
+        }
+        return lanes;
+    }, [filteredEvents, calendarStart, calendarEnd, monthGrid]);
+
+    const allLocationOptions = useMemo(() => locations.sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name)), [locations]);
+
+    const handleContextMenu = (e: React.MouseEvent, date: string) => {
+        e.preventDefault();
+        setContextMenu({ x: e.pageX, y: e.pageY, date });
+    };
+    
+    const handleCloseContextMenu = () => {
+        setContextMenu(null);
+    };
+    
+    useEffect(() => {
+        window.addEventListener('click', handleCloseContextMenu);
+        return () => {
+            window.removeEventListener('click', handleCloseContextMenu);
+        };
+    }, []);
 
     return (
         <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
+            {contextMenu && (
+                <div
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                    className="absolute z-50 bg-white dark:bg-warm-gray-800 shadow-lg rounded-md p-2 text-sm border border-warm-gray-200 dark:border-warm-gray-700"
+                >
+                    <div className="font-bold pb-1 mb-1 border-b">{formatYYYYMMDD(contextMenu.date)}</div>
+                    {muhurthamDatesSet.has(contextMenu.date) ? (
+                        <button
+                            onClick={() => deleteMuhurthamDateByDate(contextMenu.date)}
+                            className="w-full text-left px-2 py-1 rounded hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700"
+                        >
+                            Unmark as Muhurtham Day
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => addMuhurthamDate(contextMenu.date)}
+                            className="w-full text-left px-2 py-1 rounded hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700"
+                        >
+                            Mark as Muhurtham Day
+                        </button>
+                    )}
+                </div>
+            )}
             <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                     <button onClick={() => changeMonth(-1)} className={secondaryButton}><ChevronLeft size={16}/></button>
@@ -124,58 +193,96 @@ export const CalendarView = ({ events, onDateSelect, clients }: {
                      </button>
                  ))}
             </div>
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                     <div key={day} className="text-center font-bold text-sm text-warm-gray-500 p-2">{day}</div>
                 ))}
-                {daysInMonth.map((day, index) => {
-                    if (!day) return <div key={`empty-${index}`}></div>;
-                    const dateKey = dateToYYYYMMDD(day);
+            </div>
+            <div className="grid grid-cols-1 grid-rows-6 gap-px bg-warm-gray-200 dark:bg-warm-gray-700 border border-warm-gray-200 dark:border-warm-gray-700">
+                {weeklyLanes.map((week, weekIndex) => (
+                    <div key={weekIndex} className="relative grid grid-cols-7 grid-rows-1 gap-px min-h-[120px]">
+                        {monthGrid.slice(weekIndex * 7, weekIndex * 7 + 7).map((day, dayIndex) => {
+                            const isToday = new Date().toDateString() === day.toDateString();
+                            const isCurrentMonth = day.getMonth() === currentDate.getMonth();
+                            const dayKey = dateToYYYYMMDD(day);
+                            const eventsForDay = singleDayEventsByDate.get(dayKey) || [];
 
-                    const dayEvents = eventsByDate[dateKey] || [];
-                    const isToday = new Date().toDateString() === day.toDateString();
-                    return (
-                        <div key={index} 
-                            className="border border-warm-gray-200 dark:border-warm-gray-700 rounded-md min-h-[120px] p-2 flex flex-col gap-1 transition-colors cursor-pointer hover:bg-warm-gray-50 dark:hover:bg-warm-gray-700/50"
-                            onClick={() => onDateSelect(dateKey)}
-                        >
-                            <span className={`font-bold ${isToday ? 'bg-primary-500 text-white rounded-full w-6 h-6 flex items-center justify-center' : ''}`}>{day.getDate()}</span>
-                             <div className="flex-grow space-y-1 overflow-y-auto">
-                                {dayEvents.map(event => {
-                                    const locationColor = locationColorMap.get(event.location);
-                                    const cardStyle = locationColor ? { backgroundColor: locationColor } : {};
-                                    const hasCustomColor = !!locationColor;
-
-                                    return (
-                                        <div 
-                                            key={event.id}
-                                            className={`p-1.5 rounded-md text-xs ${!hasCustomColor ? 'bg-primary-50 dark:bg-primary-900/40' : ''}`}
-                                            style={cardStyle}
-                                        >
-                                            <div className="flex justify-between items-start gap-1">
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                    <span 
-                                                        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusColors[event.state]}`} 
-                                                        title={event.state.charAt(0).toUpperCase() + event.state.slice(1)}
-                                                    ></span>
-                                                    <div className="flex-grow min-w-0">
-                                                        <p className={`font-semibold ${hasCustomColor ? 'text-black/80' : 'text-warm-gray-700 dark:text-warm-gray-200'} leading-tight truncate`}>
-                                                            {clientMap.get(event.clientId) || 'Unknown Client'}
-                                                        </p>
-                                                        <p className={`${hasCustomColor ? 'text-black/60' : 'text-warm-gray-500'} truncate text-xs`}>{event.eventType}</p>
+                            return (
+                                <div key={dayIndex} className="bg-white dark:bg-warm-gray-800 p-1 flex flex-col relative" onClick={() => onDateSelect(dayKey)} onContextMenu={(e) => handleContextMenu(e, dayKey)}>
+                                    {muhurthamDatesSet.has(dayKey) && (
+                                        <span className="absolute top-1 left-1 text-lg z-20" title="Muhurtham Day">🌟</span>
+                                    )}
+                                    <span className={`relative z-10 font-bold text-xs p-1 rounded-full w-6 h-6 flex items-center justify-center self-end ${isToday ? 'bg-primary-500 text-white' : ''} ${isCurrentMonth ? 'text-warm-gray-700 dark:text-warm-gray-200' : 'text-warm-gray-400 dark:text-warm-gray-500'}`}>
+                                        {day.getDate()}
+                                    </span>
+                                    <div className="flex-grow overflow-y-auto space-y-1 mt-1 pr-1 -mr-1">
+                                        {eventsForDay.map(event => {
+                                            const clientName = clientMap.get(event.clientId) || 'Unknown Client';
+                                            const locationColor = locationColorMap.get(event.location);
+                                            const sessionInitial = event.session.charAt(0).toUpperCase();
+                                            const statusColor = event.state === 'confirmed' ? 'bg-green-500' : 'bg-yellow-400';
+                                            
+                                            return (
+                                                <div
+                                                    key={event.id}
+                                                    style={{ backgroundColor: locationColor }}
+                                                    className="p-1 rounded text-xs shadow-sm cursor-pointer"
+                                                    onClick={(e) => { e.stopPropagation(); onDateSelect(event.startDate); }}
+                                                >
+                                                    <div className="flex justify-between items-center gap-2">
+                                                        <div className="flex items-center gap-1.5 overflow-hidden flex-grow">
+                                                            <span className={`w-2 h-2 rounded-full ${statusColor} flex-shrink-0`} title={event.state}></span>
+                                                            <div className="overflow-hidden">
+                                                                <p className="font-semibold text-black/80 truncate">{clientName}</p>
+                                                                <p className="text-xs text-black/60 truncate">{event.eventType}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div
+                                                            style={{ backgroundColor: statusColors[event.state] }}
+                                                            className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
+                                                        >
+                                                            {sessionInitial}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <div className="flex-shrink-0">
-                                                    {sessionIndicator(event.session)}
-                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {week.map((lane, laneIndex) => (
+                            lane.map((segment, segIndex) => {
+                                const { event, startCol, span } = segment;
+                                const locationColor = locationColorMap.get(event.location);
+                                const clientName = clientMap.get(event.clientId) || 'Unknown Client';
+                                return (
+                                    <div
+                                        key={`${event.id}-${weekIndex}-${segIndex}`}
+                                        className="absolute p-1 text-xs rounded-md shadow-sm overflow-hidden cursor-pointer"
+                                        style={{
+                                            top: `${laneIndex * 40 + 4}px`,
+                                            left: `calc(${startCol / 7 * 100}% + 1px)`,
+                                            width: `calc(${span / 7 * 100}% - 2px)`,
+                                            minHeight: '38px',
+                                            backgroundColor: locationColor || '#fff8e1',
+                                            borderLeft: `3px solid ${statusColors[event.state]}`,
+                                        }}
+                                        onClick={() => onDateSelect(event.startDate)}
+                                    >
+                                        <div className="flex items-center gap-1.5 overflow-hidden h-full">
+                                            <span className={`w-2 h-2 rounded-full flex-shrink-0`} style={{ backgroundColor: statusColors[event.state] }} title={event.state}></span>
+                                            <div className="overflow-hidden">
+                                                <p className="font-semibold text-black/80 leading-tight truncate">{clientName}</p>
+                                                <p className="text-xs text-black/60 leading-tight truncate">{event.eventType}</p>
                                             </div>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    );
-                })}
+                                    </div>
+                                );
+                            })
+                        ))}
+                    </div>
+                ))}
             </div>
         </div>
     );

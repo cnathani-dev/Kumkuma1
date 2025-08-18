@@ -1,9 +1,12 @@
 
 
 
+
+
+
 import React, { useState, useMemo } from 'react';
 import { Event, Item, AppCategory } from '../../types';
-import { useItems, useServiceArticles, useAppCategories, useLiveCounters, useLiveCounterItems, useClients } from '../../App';
+import { useItems, useServiceArticles, useAppCategories, useLiveCounters, useLiveCounterItems, useClients } from '../../contexts/AppContexts';
 import { primaryButton, secondaryButton, inputStyle } from '../../components/common/styles';
 import { Save, ArrowLeft, UtensilsCrossed, Users, Download } from 'lucide-react';
 import { exportNameCardsToPdf } from '../../lib/export';
@@ -111,7 +114,7 @@ export const ServicePlannerPage: React.FC<ServicePlannerPageProps> = ({ event, o
 
         const namedCounts = new Map<string, number>();
         for (const [id, count] of counts.entries()) {
-            const name = serviceArticleMap.get(id);
+            const name = serviceArticleMap.get(id as string);
             if (name && count > 0) {
                 namedCounts.set(name, count);
             }

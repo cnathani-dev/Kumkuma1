@@ -1,8 +1,9 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Transaction } from '../../types';
-import { useExpenseTypes, usePaymentModes } from '../../App';
+import { useExpenseTypes, usePaymentModes } from '../../contexts/AppContexts';
 import { inputStyle, primaryButton, secondaryButton } from '../../components/common/styles';
 import { dateToYYYYMMDD } from '../../lib/utils';
 

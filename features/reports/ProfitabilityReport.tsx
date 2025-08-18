@@ -1,16 +1,15 @@
-
 import React from 'react';
 import { secondaryButton } from '../../components/common/styles';
 import { FileDown, Sheet } from 'lucide-react';
 
 export const ProfitabilityReport = ({ data, onExport }: { data: any[] | null, onExport: (format: 'pdf' | 'excel', h: string[], d: any[][]) => void }) => {
-    const headers = ['Client', 'Event', 'Total Bill', 'Total Expenses', 'Profit'];
+    const headers = ['Client', 'Event', 'Event Date', 'Total Bill', 'Total Expenses', 'Profit'];
     
     if (data === null) {
         return <div className="text-center p-8 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-lg text-warm-gray-500">Select filters and click "Generate Report" to view data.</div>
     }
 
-    const dataForExport = data.map(r => [r.client, r.event, r.totalBill, r.totalExpenses, r.profit]);
+    const dataForExport = data.map(r => [r.client, r.event, r.eventDate, r.totalBill, r.totalExpenses, r.profit]);
 
     return (
         <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md">
@@ -29,6 +28,7 @@ export const ProfitabilityReport = ({ data, onExport }: { data: any[] | null, on
                             <tr key={i}>
                                 <td className="px-4 py-2 whitespace-nowrap">{row.client}</td>
                                 <td className="px-4 py-2 whitespace-nowrap">{row.event}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">{row.eventDate}</td>
                                 <td className="px-4 py-2 whitespace-nowrap text-right">₹{row.totalBill.toLocaleString('en-IN')}</td>
                                 <td className="px-4 py-2 whitespace-nowrap text-right">₹{row.totalExpenses.toLocaleString('en-IN')}</td>
                                 <td className={`px-4 py-2 whitespace-nowrap text-right font-bold ${row.profit > 0 ? 'text-green-600' : 'text-red-600'}`}>

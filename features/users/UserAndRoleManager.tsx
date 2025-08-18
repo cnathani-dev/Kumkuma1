@@ -1,7 +1,8 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { User, Role, AppPermissions, Client, LocationSetting, PermissionLevel, UserRole } from '../../types';
-import { useUsers, useRoles, useClients, useLocations } from '../../App';
+import { useUsers, useRoles, useClients, useLocations } from '../../contexts/AppContexts';
 import Modal from '../../components/Modal';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
 import { Plus, Edit, Trash2, Save } from 'lucide-react';
@@ -253,12 +254,20 @@ const RoleForm = ({ onSave, onCancel, role }: { onSave:(r:any)=>void, onCancel:(
     const permissionNames: (keyof AppPermissions)[] = [
         'dashboard', 'itemBank', 'catalogs', 'templates', 'liveCounters', 
         'reports', 'users', 'settings', 'clientsAndEvents', 
-        'financeCore', 'financeCharges', 'financePayments', 'financeExpenses'
+        'financeCore', 'financeCharges', 'financePayments', 'financeExpenses', 'muhurthams'
     ];
     const permissionLevels: PermissionLevel[] = ['none', 'view', 'modify'];
 
+    const booleanPermissions: { key: keyof AppPermissions; label: string }[] = [
+        { key: 'allowEventCancellation', label: 'Allow cancelling confirmed events' }
+    ];
+
     const handlePermissionChange = (key: keyof AppPermissions, level: PermissionLevel) => {
         setPermissions(prev => ({...prev, [key]: level}));
+    };
+
+    const handleBooleanPermissionChange = (key: keyof AppPermissions, checked: boolean) => {
+        setPermissions(prev => ({ ...prev, [key]: checked }));
     };
     
     const handleSubmit = (e:React.FormEvent) => {
@@ -293,6 +302,26 @@ const RoleForm = ({ onSave, onCancel, role }: { onSave:(r:any)=>void, onCancel:(
                         ))}
                     </tbody>
                 </table>
+            </div>
+
+            <div className="mt-4 pt-4 border-t">
+                <h4 className="font-semibold mb-2">Specific Permissions</h4>
+                <div className="space-y-2">
+                    {booleanPermissions.map(({ key, label }) => (
+                        <div key={key} className="flex items-center">
+                            <input
+                                type="checkbox"
+                                id={key}
+                                checked={!!permissions[key]}
+                                onChange={(e) => handleBooleanPermissionChange(key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <label htmlFor={key} className="ml-2 block text-sm">
+                                {label}
+                            </label>
+                        </div>
+                    ))}
+                </div>
             </div>
 
              <div className="flex justify-end gap-3 pt-4">

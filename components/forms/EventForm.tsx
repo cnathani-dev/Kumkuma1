@@ -1,9 +1,8 @@
 
 
-
 import React, { useState, useMemo } from 'react';
 import { Event, EventSession, EventState, MenuTemplate, LocationSetting, MenuSelectionStatus } from '../../types';
-import { useTemplates, useLocations, useEventTypes } from '../../App';
+import { useTemplates, useLocations, useEventTypes, useMuhurthamDates } from '../../contexts/AppContexts';
 import { inputStyle, primaryButton, secondaryButton } from '../common/styles';
 import { Save } from 'lucide-react';
 import { dateToYYYYMMDD } from '../../lib/utils';
@@ -18,15 +17,19 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
     const { templates } = useTemplates();
     const { locations } = useLocations();
     const { settings: eventTypes } = useEventTypes();
+    const { muhurthamDates } = useMuhurthamDates();
 
     const [eventType, setEventType] = useState(event?.eventType || '');
-    const [date, setDate] = useState(event?.date || '');
+    const [startDate, setStartDate] = useState(event?.startDate || '');
+    const [endDate, setEndDate] = useState(event?.endDate || '');
     const [location, setLocation] = useState(event?.location || '');
     const [address, setAddress] = useState(event?.address || '');
     const [session, setSession] = useState<EventSession>(event?.session || 'dinner');
     const [templateId, setTemplateId] = useState(event?.templateId || '');
     const [pricingModel, setPricingModel] = useState<'variable' | 'flat' | 'mix'>(event?.pricingModel || 'variable');
     const [rent, setRent] = useState(event?.rent || 0);
+    const [pax, setPax] = useState(event?.pax || 0);
+    const [notes, setNotes] = useState(event?.notes || '');
     
     const fifteenDaysAgo = new Date();
     fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
@@ -45,20 +48,28 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
         return groups;
     }, [templates]);
 
+    const muhurthamDatesSet = useMemo(() => new Set(muhurthamDates.map(d => d.date)), [muhurthamDates]);
+
     const sortedGroupNames = useMemo(() => Object.keys(groupedTemplates).sort(), [groupedTemplates]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if(isReadOnly) return;
         
-        if(!eventType || !date || !location) {
-            alert("Please fill out Event Type, Date, and Location fields.");
+        if(!eventType || !startDate || !location) {
+            alert("Please fill out Event Type, Start Date, and Location fields.");
+            return;
+        }
+
+        if (endDate && endDate < startDate) {
+            alert("End date cannot be before start date.");
             return;
         }
         
         const baseData = {
             eventType,
-            date: date,
+            startDate: startDate,
+            endDate: endDate || undefined,
             location,
             address: location === 'ODC' ? address : '',
             session,
@@ -67,6 +78,8 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
             pricingModel,
             rent: (pricingModel === 'flat' || pricingModel === 'mix') ? rent : 0,
             perPaxPrice: (pricingModel === 'variable' || pricingModel === 'mix') ? (event?.perPaxPrice || 0) : 0,
+            pax,
+            notes: notes,
         };
 
         if(event) { // This is an update
@@ -79,7 +92,6 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
                 createdAt: new Date().toISOString(),
                 state: 'lead',
                 status: 'draft',
-                pax: 0,
                 liveCounters: {},
                 transactions: [],
                 charges: [],
@@ -98,9 +110,30 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
                         {eventTypes.map(et => <option key={et.id} value={et.name}>{et.name}</option>)}
                     </select>
                 </div>
+                 <div>
+                    <label className="block text-sm font-medium">Session</label>
+                    <select value={session} onChange={e => setSession(e.target.value as EventSession)} required className={inputStyle} disabled={isReadOnly}>
+                        <option value="breakfast">Breakfast</option>
+                        <option value="lunch">Lunch</option>
+                        <option value="dinner">Dinner</option>
+                        <option value="all-day">All-Day</option>
+                    </select>
+                </div>
+            </div>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label className="block text-sm font-medium">Event Date</label>
-                    <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={inputStyle} min={minDate} readOnly={isReadOnly} />
+                    <label className="block text-sm font-medium">Start Date</label>
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required className={inputStyle} min={minDate} readOnly={isReadOnly} />
+                    {muhurthamDatesSet.has(startDate) && (
+                        <p className="text-xs text-amber-600 mt-1">🌟 This is a Muhurtham date (high demand)</p>
+                    )}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium">End Date (Optional)</label>
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={inputStyle} min={startDate} readOnly={isReadOnly} />
+                    {endDate && muhurthamDatesSet.has(endDate) && (
+                         <p className="text-xs text-amber-600 mt-1">🌟 This is a Muhurtham date (high demand)</p>
+                    )}
                 </div>
             </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -111,13 +144,9 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
                         {locations.sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity)).map(loc => <option key={loc.id} value={loc.name}>{loc.name === 'ODC' ? 'ODC (Outdoor Catering)' : loc.name}</option>)}
                     </select>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium">Session</label>
-                    <select value={session} onChange={e => setSession(e.target.value as EventSession)} required className={inputStyle} disabled={isReadOnly}>
-                        <option value="breakfast">Breakfast</option>
-                        <option value="lunch">Lunch</option>
-                        <option value="dinner">Dinner</option>
-                    </select>
+                 <div>
+                    <label className="block text-sm font-medium">PAX Count</label>
+                    <input type="number" value={pax} onChange={e => setPax(Number(e.target.value))} min="0" className={inputStyle} readOnly={isReadOnly}/>
                 </div>
             </div>
             {location === 'ODC' && (
@@ -126,6 +155,10 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
                     <textarea value={address} onChange={e => setAddress(e.target.value)} rows={2} required className={inputStyle} readOnly={isReadOnly} />
                 </div>
             )}
+             <div>
+                <label className="block text-sm font-medium">Notes / Special Instructions</label>
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className={inputStyle} readOnly={isReadOnly}/>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Menu Template</label>

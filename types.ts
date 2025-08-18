@@ -25,7 +25,7 @@ export type ItemType = 'veg' | 'chicken' | 'mutton' | 'egg' | 'prawns' | 'fish' 
 export type MenuSelectionStatus = 'draft' | 'finalized'; // maps to write | read-only
 
 export type EventState = 'lead' | 'confirmed' | 'lost' | 'cancelled';
-export type EventSession = 'breakfast' | 'lunch' | 'dinner';
+export type EventSession = 'breakfast' | 'lunch' | 'dinner' | 'all-day';
 export type PermissionLevel = 'none' | 'view' | 'modify';
 
 export interface AppPermissions {
@@ -42,6 +42,8 @@ export interface AppPermissions {
   financeCharges: PermissionLevel;
   financePayments: PermissionLevel;
   financeExpenses: PermissionLevel;
+  muhurthams?: PermissionLevel;
+  allowEventCancellation?: boolean;
 }
 
 export interface Role {
@@ -54,9 +56,13 @@ export interface Client {
   id: string;
   name: string;
   phone: string;
+  email?: string;
+  company?: string;
+  address?: string;
   referredBy: string;
   hasSystemAccess?: boolean;
   status?: 'active' | 'inactive';
+  history?: FinancialHistoryEntry[];
 }
 
 export interface User {
@@ -135,6 +141,11 @@ export interface LocationSetting {
   color?: string;
 }
 
+export interface RestaurantSetting {
+  id: string;
+  name: string;
+}
+
 export interface FinancialSetting {
   id: string;
   name: string;
@@ -183,7 +194,8 @@ export interface Charge {
 export interface Event {
   id: string;
   eventType: string;
-  date: string; // YYYY-MM-DD
+  startDate: string; // YYYY-MM-DD
+  endDate?: string; // YYYY-MM-DD
   location: string;
   address?: string; // For ODC location
   session: EventSession;
@@ -195,9 +207,10 @@ export interface Event {
   createdAt: string; // ISO string
   status: MenuSelectionStatus;
   pax?: number;
+  notes?: string; // Replaces specialInstructions
   liveCounters?: Record<string, string[]>; // key: liveCounterId, value: liveCounterItemIds[]
-  specialInstructions?: string;
   stateHistory?: StateChangeHistoryEntry[];
+  history?: FinancialHistoryEntry[];
   
   // New Finance Fields
   pricingModel?: 'variable' | 'flat' | 'mix';
@@ -223,6 +236,81 @@ export interface AuditLog {
     clientId?: string;
 }
 
+export interface RawMaterial {
+  id: string;
+  name: string;
+  unit: string; // kg, g, pieces, liters, etc.
+}
+
+export interface RecipeRawMaterial {
+  rawMaterialId: string;
+  quantity: number;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  instructions: string;
+  rawMaterials: RecipeRawMaterial[];
+  outputKg: number;
+  outputLitres: number;
+}
+
+export interface PlatterRecipe {
+  recipeId: string;
+  quantityMl: number;
+}
+
+export interface Platter {
+  id: string;
+  name: string;
+  recipes: PlatterRecipe[];
+}
+
+export interface Order {
+    id: string;
+    date: string;
+    session: EventSession;
+    recipeRequirements: Record<string, Record<string, number>>;
+    platterRequirements?: Record<string, Record<string, number>>;
+}
+
+export interface OrderTemplate {
+  id: string;
+  name: string;
+  recipeIds: string[];
+}
+
+export interface Activity {
+  id: string;
+  clientId: string;
+  timestamp: string; // ISO string
+  type: 'call' | 'email' | 'meeting' | 'note';
+  notes: string;
+  userId: string;
+  username: string;
+}
+
+export interface ClientTask {
+  id: string;
+  clientId: string;
+  title: string;
+  dueDate?: string; // YYYY-MM-DD
+  isCompleted: boolean;
+  createdAt: string; // ISO string
+  completedAt?: string; // ISO string
+  userId: string; // creator
+  username: string; // creator
+  assignedToUserId?: string;
+  assignedToUsername?: string;
+}
+
+export interface MuhurthamDate {
+  id: string;
+  date: string; // YYYY-MM-DD
+}
+
+
 export interface EventsContextType {
     events: Event[];
     addEvent: (event: Omit<Event, 'id'>) => Promise<string>;
@@ -232,6 +320,50 @@ export interface EventsContextType {
     duplicateEvent: (event: Event) => Promise<void>;
     importClientsAndEvents: (data: any[]) => Promise<number>;
 };
+
+export interface RawMaterialsContextType {
+    rawMaterials: RawMaterial[];
+    addRawMaterial: (rawMaterial: Omit<RawMaterial, 'id'>) => Promise<string>;
+    updateRawMaterial: (rawMaterial: RawMaterial) => Promise<void>;
+    deleteRawMaterial: (id: string) => Promise<void>;
+    mergeRawMaterials: (sourceRawMaterialIds: string[], destinationRawMaterialId: string) => Promise<void>;
+}
+
+export interface RecipesContextType {
+    recipes: Recipe[];
+    addRecipe: (recipe: Omit<Recipe, 'id'>) => Promise<void>;
+    updateRecipe: (recipe: Recipe) => Promise<void>;
+    deleteRecipe: (id: string) => Promise<void>;
+    addMultipleRecipes: (data: any[]) => Promise<number>;
+}
+
+export interface RestaurantsContextType {
+    restaurants: RestaurantSetting[];
+    addRestaurant: (restaurant: Omit<RestaurantSetting, 'id'>) => Promise<void>;
+    updateRestaurant: (restaurant: RestaurantSetting) => Promise<void>;
+    deleteRestaurant: (id: string) => Promise<void>;
+}
+
+export interface OrdersContextType {
+    orders: Order[];
+    addOrder: (order: Omit<Order, 'id'>) => Promise<void>;
+    updateOrder: (order: Order) => Promise<void>;
+    deleteOrder: (id: string) => Promise<void>;
+}
+
+export interface OrderTemplatesContextType {
+    orderTemplates: OrderTemplate[];
+    addOrderTemplate: (template: Omit<OrderTemplate, 'id'>) => Promise<string>;
+    updateOrderTemplate: (template: OrderTemplate) => Promise<void>;
+    deleteOrderTemplate: (id: string) => Promise<void>;
+}
+
+export interface PlattersContextType {
+    platters: Platter[];
+    addPlatter: (platter: Omit<Platter, 'id'>) => Promise<void>;
+    updatePlatter: (platter: Platter) => Promise<void>;
+    deletePlatter: (id: string) => Promise<void>;
+}
 
 export interface ItemsContextType {
     items: Item[];
@@ -277,3 +409,33 @@ export interface AppCategoriesContextType {
     updateMultipleCategories: (categoriesToUpdate: {id: string, displayRank: number}[]) => Promise<void>;
     mergeCategory: (sourceCategoryId: string, destinationCategoryId: string) => Promise<void>;
 };
+
+export interface FinancialSettingContextType {
+    settings: FinancialSetting[];
+    addSetting: (name: string) => Promise<void>;
+    updateSetting: (id: string, name: string) => Promise<void>;
+    deleteSetting: (id: string) => Promise<void>;
+    mergeSettings?: (sourceIds: string[], destinationId: string) => Promise<void>;
+}
+
+export interface ActivitiesContextType {
+  activities: Activity[];
+  addActivity: (activity: Omit<Activity, 'id'>) => Promise<string>;
+  updateActivity: (activity: Activity) => Promise<void>;
+  deleteActivity: (id: string) => Promise<void>;
+}
+
+export interface ClientTasksContextType {
+  tasks: ClientTask[];
+  addTask: (task: Omit<ClientTask, 'id'>) => Promise<string>;
+  updateTask: (task: ClientTask) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
+}
+
+export interface MuhurthamDatesContextType {
+  muhurthamDates: MuhurthamDate[];
+  addMuhurthamDate: (date: string) => Promise<void>;
+  deleteMuhurthamDateByDate: (date: string) => Promise<void>;
+  importMuhurthamDates: (data: any[]) => Promise<number>;
+  deleteAllMuhurthamDates: () => Promise<void>;
+}

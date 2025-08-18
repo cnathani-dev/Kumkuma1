@@ -1,13 +1,14 @@
 
 
 
+
+
 import React, { useState, useMemo } from 'react';
 import { MenuTemplate, Catalog, AppCategory } from '../../types';
-import { useTemplates, useCatalogs, useAppCategories } from '../../App';
+import { useTemplates, useCatalogs, useAppCategories, useItems } from '../../contexts/AppContexts';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
 import { Plus, Edit, Trash2, Save, X, FileText } from 'lucide-react';
 import { exportTemplateToPdf } from '../../lib/export';
-import { useItems } from '../../App';
 
 interface TemplateManagerProps {
     canModify: boolean;

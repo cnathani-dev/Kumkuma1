@@ -1,8 +1,11 @@
 
 
 
+
+
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useAppCategories, useUnits, useItemAccompaniments } from '../../App';
+import { useAppCategories, useUnits, useItemAccompaniments } from '../../contexts/AppContexts';
 import { AppCategory, PermissionLevel, FinancialSetting, ItemAccompaniment } from '../../types';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { inputStyle } from '../../components/common/styles';

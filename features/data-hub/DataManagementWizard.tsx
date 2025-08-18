@@ -1,17 +1,17 @@
-
-
-
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { useItems, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs, useClients, useEvents } from '../../App';
+import { useItems, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs, useClients, useEvents, useRecipes, useRawMaterials, useMuhurthamDates } from '../../contexts/AppContexts';
 import {
     downloadCategorySample, downloadItemSample, downloadLiveCounterSample, downloadCatalogSample, downloadClientEventSample,
-    exportAllCategories, exportAllItems, exportAllLiveCounters, exportAllCatalogs, exportAllClients, exportAllEvents
+    exportAllCategories, exportAllItems, exportAllLiveCounters, exportAllCatalogs, exportAllClients, exportAllEvents,
+    downloadRecipeSample, exportAllRecipes,
+    exportAllMuhurthamDates,
+    downloadMuhurthamDateSample
 } from '../../lib/export';
 import { primaryButton, secondaryButton, inputStyle, dangerButton } from '../../components/common/styles';
 import { Download, Upload, FileQuestion, Trash2, Plus, Loader2, Database } from 'lucide-react';
 import { db } from '../../firebase';
-import { doc, writeBatch } from 'firebase/firestore';
+import { doc, writeBatch, deleteField } from 'firebase/firestore';
 import { dateToYYYYMMDD } from '../../lib/utils';
 
 
@@ -34,7 +34,11 @@ export const DataManagementWizard = () => {
     const { catalogs, addMultipleCatalogs, deleteAllCatalogs } = useCatalogs();
     const { clients, deleteAllClients, addSampleData, deleteSampleData } = useClients();
     const { events, deleteAllEvents, importClientsAndEvents } = useEvents();
+    const { recipes, addMultipleRecipes } = useRecipes();
+    const { rawMaterials } = useRawMaterials();
+    const { muhurthamDates, importMuhurthamDates, deleteAllMuhurthamDates } = useMuhurthamDates();
     const [isMigrating, setIsMigrating] = useState(false);
+    const [isFixingTxDates, setIsFixingTxDates] = useState(false);
     
 
     const handleFileUpload = async (file: File, importFunction: (data: any[]) => Promise<any>, expectedHeaders: string[]) => {
@@ -169,42 +173,97 @@ export const DataManagementWizard = () => {
     };
 
     const handleFixOldDates = async () => {
-        if (!window.confirm("This tool will scan for events with old date formats (prior to Aug 1, 2025) and update them. It's safe to run multiple times, but please back up your data first if you have concerns. Proceed?")) {
+        if (!window.confirm("This tool will migrate all events from the old single-date format to the new multi-day format (renaming 'date' to 'startDate'). It is safe to run multiple times. Proceed?")) {
             return;
         }
-
+    
         setIsMigrating(true);
         let updatedCount = 0;
         const batch = writeBatch(db);
-        const cutoffDate = new Date('2025-08-01');
-
+    
         try {
             events.forEach(event => {
-                // Check if the date is a string and looks like an ISO string (long format)
-                if (typeof event.date === 'string' && (event.date.includes('T') || event.date.includes(' '))) {
-                    const eventDate = new Date(event.date);
-
-                    // Check if the parsed date is valid and before the cutoff
-                    if (!isNaN(eventDate.getTime()) && eventDate < cutoffDate) {
-                        const eventRef = doc(db, 'events', event.id);
-                        const newDate = dateToYYYYMMDD(eventDate);
-                        batch.update(eventRef, { date: newDate });
-                        updatedCount++;
-                    }
+                const eventData = event as any;
+                // Check if the old `date` field exists and the new `startDate` field does NOT.
+                if (eventData.date && !eventData.startDate) {
+                    const eventRef = doc(db, 'events', event.id);
+                    batch.update(eventRef, {
+                        startDate: eventData.date,
+                        date: deleteField()
+                    });
+                    updatedCount++;
                 }
             });
-
+    
             if (updatedCount > 0) {
                 await batch.commit();
-                alert(`Successfully migrated ${updatedCount} event dates.`);
+                alert(`Successfully migrated ${updatedCount} events to the new date schema.`);
             } else {
-                alert("No events with old date formats found to migrate.");
+                alert("No events found that required migration.");
             }
         } catch (error: any) {
             console.error("Date migration failed:", error);
             alert(`An error occurred during date migration: ${error.message}`);
         } finally {
             setIsMigrating(false);
+        }
+    };
+
+    const handleFixTransactionDates = async () => {
+        if (!window.confirm("This tool will scan all events and fix improperly formatted Payment and Expense dates to the 'YYYY-MM-DD' standard. This is safe to run multiple times. Proceed?")) {
+            return;
+        }
+    
+        setIsFixingTxDates(true);
+        let updatedEventsCount = 0;
+        const batch = writeBatch(db);
+    
+        try {
+            for (const event of events) {
+                if (!event.transactions || event.transactions.length === 0) {
+                    continue;
+                }
+    
+                let needsUpdate = false;
+                const updatedTransactions = event.transactions.map(tx => {
+                    if (typeof tx.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.date)) {
+                        return tx; // Already in correct format
+                    }
+                    
+                    // Attempt to parse whatever format it is in (ISO string, Firestore Timestamp obj, etc.)
+                    const dateObj = new Date(tx.date);
+                    if (isNaN(dateObj.getTime())) {
+                        console.warn(`Skipping invalid date for transaction ${tx.id} in event ${event.id}:`, tx.date);
+                        return tx; // Can't parse, so skip
+                    }
+                    
+                    const formattedDate = dateToYYYYMMDD(dateObj);
+                    if (formattedDate !== tx.date) {
+                        needsUpdate = true;
+                        return { ...tx, date: formattedDate };
+                    }
+                    
+                    return tx;
+                });
+    
+                if (needsUpdate) {
+                    const eventRef = doc(db, 'events', event.id);
+                    batch.update(eventRef, { transactions: updatedTransactions });
+                    updatedEventsCount++;
+                }
+            }
+    
+            if (updatedEventsCount > 0) {
+                await batch.commit();
+                alert(`Successfully checked all events and fixed transaction dates in ${updatedEventsCount} event(s).`);
+            } else {
+                alert("No events found with transaction dates that required fixing.");
+            }
+        } catch (error: any) {
+            console.error("Transaction date migration failed:", error);
+            alert(`An error occurred during transaction date migration: ${error.message}`);
+        } finally {
+            setIsFixingTxDates(false);
         }
     };
 
@@ -226,12 +285,16 @@ export const DataManagementWizard = () => {
             <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md">
                 <h4 className="text-xl font-bold mb-4">Data Integrity Tools</h4>
                 <p className="text-sm text-warm-gray-500 mb-4">
-                    Use these tools for one-off data corrections. The tool below fixes old event dates causing "Invalid Date" errors.
+                    Use these tools for one-off data corrections.
                 </p>
                 <div className="flex flex-wrap gap-4">
                     <button onClick={handleFixOldDates} className={primaryButton} disabled={isMigrating}>
                         {isMigrating ? <Loader2 className="animate-spin" size={16}/> : <Database size={16}/>}
-                        {isMigrating ? 'Migrating...' : 'Fix Old Event Dates'}
+                        {isMigrating ? 'Migrating...' : 'Fix Event Schema Dates'}
+                    </button>
+                     <button onClick={handleFixTransactionDates} className={primaryButton} disabled={isFixingTxDates}>
+                        {isFixingTxDates ? <Loader2 className="animate-spin" size={16}/> : <Database size={16}/>}
+                        {isFixingTxDates ? 'Fixing...' : 'Fix Transaction Dates'}
                     </button>
                 </div>
             </div>
@@ -266,13 +329,26 @@ export const DataManagementWizard = () => {
             <DataCard 
                 title="Clients & Events" 
                 onExport={() => { exportAllClients(clients); exportAllEvents(events, clients);}} 
-                onImport={(file) => handleFileUpload(file, importClientsAndEvents, ['Client Name', 'Event Type', 'Event Date'])}
+                onImport={(file) => handleFileUpload(file, importClientsAndEvents, ['Client Name', 'Event Type', 'Start Date'])}
                 onSample={downloadClientEventSample}
                 onDeleteAll={() => {
                     if(window.confirm("Are you sure you want to delete ALL clients and events? This cannot be undone.")) {
                         deleteAllClients();
                     }
                 }} 
+            />
+            <DataCard
+                title="Recipes"
+                onExport={() => exportAllRecipes(recipes, rawMaterials)}
+                onImport={(file) => handleFileUpload(file, addMultipleRecipes, ['recipe', 'raw material', 'raw material qty', 'raw material unit'])}
+                onSample={downloadRecipeSample}
+            />
+            <DataCard
+                title="Muhurtham Dates"
+                onExport={() => exportAllMuhurthamDates(muhurthamDates)}
+                onImport={(file) => handleFileUpload(file, importMuhurthamDates, ['date'])}
+                onSample={downloadMuhurthamDateSample}
+                onDeleteAll={deleteAllMuhurthamDates}
             />
         </div>
     );

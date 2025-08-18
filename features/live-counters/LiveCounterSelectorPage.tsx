@@ -1,9 +1,11 @@
 
 
 
+
+
 import React, { useState } from 'react';
 import { Event } from '../../types';
-import { useLiveCounters, useLiveCounterItems } from '../../App';
+import { useLiveCounters, useLiveCounterItems } from '../../contexts/AppContexts';
 import { primaryButton, secondaryButton } from '../../components/common/styles';
 import { Save, ArrowLeft } from 'lucide-react';
 

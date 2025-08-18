@@ -2,9 +2,10 @@
 
 
 
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Event, Item, MenuTemplate, AppCategory, ItemType, LiveCounterItem, LiveCounter, Catalog, EventSession, EventState, Client } from '../../types';
-import { useItems, useTemplates, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs, useLocations } from '../../App';
+import { useItems, useTemplates, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs, useLocations } from '../../contexts/AppContexts';
 import Modal from '../../components/Modal';
 import { v4 as uuidv4 } from 'uuid';
 import { Save, X, Eye, FileText, FileSpreadsheet, MapPin, Clock, Calendar, Leaf, Beef, Loader2, AlertTriangle, Salad, ArrowLeft, ChevronDown, Palette } from 'lucide-react';
@@ -139,10 +140,10 @@ const MenuSummary: React.FC<MenuSummaryProps> = ({
                     </div>
                 )}
             </div>
-             {event.specialInstructions && (
+             {event.notes && (
                 <div className="mt-4 pt-4 border-t">
                      <h4 className="font-bold text-lg text-warm-gray-700 dark:text-warm-gray-300">Special Instructions</h4>
-                     <p className="text-sm text-warm-gray-600 dark:text-warm-gray-400 whitespace-pre-wrap">{event.specialInstructions}</p>
+                     <p className="text-sm text-warm-gray-600 dark:text-warm-gray-400 whitespace-pre-wrap">{event.notes}</p>
                 </div>
             )}
         </div>
@@ -281,12 +282,12 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
     };
 
     const handleSaveRequest = () => {
-        setTempInstructions(event.specialInstructions || '');
+        setTempInstructions(event.notes || '');
         setIsInstructionsModalOpen(true);
     };
 
     const handleFinalSave = () => {
-        const finalEvent = { ...event, specialInstructions: tempInstructions };
+        const finalEvent = { ...event, notes: tempInstructions };
         onSave(finalEvent);
         setIsInstructionsModalOpen(false);
     };
@@ -393,7 +394,12 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
                         allCategories={allCategories}
                         liveCounterMap={liveCounterMap}
                         liveCounterItemMap={liveCounterItemMap}
-                        onRemoveItem={(item) => handleItemToggle(item, hierarchicalData.find(d => d.childCatIds.includes(item.categoryId))!)}
+                        onRemoveItem={(item) => {
+                            const rootCatInfo = hierarchicalData.find(d => d.childCatIds.includes(item.categoryId));
+                            if (rootCatInfo) {
+                                handleItemToggle(item, rootCatInfo);
+                            }
+                        }}
                         isReadOnly={isReadOnly}
                     />
                 </div>
@@ -410,11 +416,11 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
                 title="Special Instructions"
             >
                 <div>
-                    <label htmlFor="specialInstructions" className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">
+                    <label htmlFor="notes" className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">
                         Add any special notes or instructions for this event.
                     </label>
                     <textarea
-                        id="specialInstructions"
+                        id="notes"
                         value={tempInstructions}
                         onChange={(e) => setTempInstructions(e.target.value)}
                         className={inputStyle + " min-h-[120px]"}

@@ -1,11 +1,11 @@
 
-
 import React, { useMemo } from 'react';
 import { Event, Item, AppCategory, PlanCategory, PlanItem, Client } from '../../types';
-import { useItems, useAppCategories, useItemAccompaniments, useClients } from '../../App';
+import { useItems, useAppCategories, useItemAccompaniments, useClients } from '../../contexts/AppContexts';
 import { secondaryButton } from '../../components/common/styles';
 import { ArrowLeft, ChefHat, User, Calendar, Clock, Download, MapPin } from 'lucide-react';
 import { exportKitchenPlanToPdf } from '../../lib/export';
+import { formatDateRange } from '../../lib/utils';
 
 interface KitchenPlanPageProps {
     event: Event;
@@ -185,7 +185,7 @@ export const KitchenPlanPage: React.FC<KitchenPlanPageProps> = ({ event, onCance
                     <User size={16} /> PAX: <span className="text-lg text-primary-500">{event.pax || 0}</span>
                  </div>
                  <div className="flex items-center gap-2">
-                    <Calendar size={16} /> {new Date(event.date).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric'})}
+                    <Calendar size={16} /> {formatDateRange(event.startDate, event.endDate)}
                  </div>
                  <div className="flex items-center gap-2">
                     <Clock size={16} /> {event.session.charAt(0).toUpperCase() + event.session.slice(1)}
@@ -202,10 +202,10 @@ export const KitchenPlanPage: React.FC<KitchenPlanPageProps> = ({ event, onCance
                 </div>
              )}
 
-             {event.specialInstructions && (
+             {event.notes && (
                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
                      <h3 className="font-bold text-lg mb-2 text-yellow-800 dark:text-yellow-200">Special Instructions</h3>
-                     <p className="text-sm text-yellow-700 dark:text-yellow-500 whitespace-pre-wrap">{event.specialInstructions}</p>
+                     <p className="text-sm text-yellow-700 dark:text-yellow-500 whitespace-pre-wrap">{event.notes}</p>
                  </div>
              )}
 

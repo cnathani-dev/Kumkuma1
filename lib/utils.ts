@@ -1,4 +1,5 @@
 
+
 /**
  * Recursively removes properties with `undefined` values from an object.
  * This is useful for preparing objects to be saved to Firestore, which doesn't allow `undefined`.
@@ -97,4 +98,33 @@ export const dateToYYYYMMDD = (date: Date): string => {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+/**
+ * Formats a date range for display.
+ * @param startDate A string in 'YYYY-MM-DD' format.
+ * @param endDate An optional string in 'YYYY-MM-DD' format.
+ * @returns A formatted date range string (e.g., "July 25, 2024" or "July 25 to 28, 2024").
+ */
+export const formatDateRange = (startDate: string, endDate?: string | null): string => {
+    if (!endDate || startDate === endDate) {
+        return formatYYYYMMDD(startDate);
+    }
+
+    const start = yyyyMMDDToDate(startDate);
+    const end = yyyyMMDDToDate(endDate);
+
+    const startMonth = start.toLocaleString('default', { month: 'long' });
+    const endMonth = end.toLocaleString('default', { month: 'long' });
+    const startYear = start.getFullYear();
+    const endYear = end.getFullYear();
+
+    if (startYear !== endYear) {
+        return `${formatYYYYMMDD(startDate)} to ${formatYYYYMMDD(endDate)}`;
+    }
+    if (startMonth !== endMonth) {
+         return `${start.toLocaleString('default', { month: 'long', day: 'numeric' })} to ${formatYYYYMMDD(endDate)}`;
+    }
+    
+    return `${startMonth} ${start.getDate()} to ${end.getDate()}, ${startYear}`;
 };

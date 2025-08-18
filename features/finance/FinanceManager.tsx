@@ -1,9 +1,11 @@
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Event, Client, Charge, Transaction, FinancialHistoryEntry, PermissionLevel } from '../../types';
-import { useClients } from '../../App';
+import { useClients } from '../../contexts/AppContexts';
 import { useAuth } from '../../contexts/AuthContext';
-import { deepClone } from '../../lib/utils';
+import { deepClone, formatDateRange } from '../../lib/utils';
 import { exportFinanceToPdf, exportFinanceSectionToPdf } from '../../lib/export';
 import Modal from '../../components/Modal';
 import { ChargeForm } from './ChargeForm';
@@ -54,7 +56,7 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
 
     const clientName = useMemo(() => clients.find(c => c.id === event.clientId)?.name || 'N/A', [clients, event.clientId]);
 
-    const handleFieldChange = (field: 'pax' | 'perPaxPrice' | 'rent', value: string) => {
+    const handleFieldChange = (field: 'perPaxPrice' | 'rent', value: string) => {
         if(isEventLocked || permissionCore !== 'modify') return;
         setEvent(prev => ({...prev, [field]: Number(value) >= 0 ? Number(value) : 0}));
     };
@@ -78,13 +80,19 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
             alert("Error: You must be logged in to make changes.");
             return;
         }
+        
+        const isUpdate = !!modalState?.data?.id;
+
+        const reasonForCreation = modalState?.type === 'charge' 
+            ? `Charge Added: ${itemData.type}`
+            : `Transaction Added: ${itemData.type === 'income' ? 'Payment' : 'Expense'}`;
 
         const historyEntry: FinancialHistoryEntry = {
             timestamp: new Date().toISOString(),
             userId: currentUser.id,
             username: currentUser.username,
-            action: modalState?.data?.id ? 'updated' : 'created',
-            reason,
+            action: isUpdate ? 'updated' : 'created',
+            reason: isUpdate ? reason : reasonForCreation,
             changes: []
         };
         
@@ -92,7 +100,7 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
         
         if (modalState?.type === 'charge') {
             const charges = newEvent.charges || [];
-            const index = modalState.data?.id ? charges.findIndex(c => c.id === modalState.data!.id) : -1;
+            const index = isUpdate ? charges.findIndex(c => c.id === modalState.data!.id) : -1;
             
             if (index > -1) { // Update
                 const existingCharge = charges[index];
@@ -110,342 +118,302 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
 
         } else if (modalState?.type === 'transaction') {
              const transactions = newEvent.transactions || [];
-             const index = modalState.data?.id ? transactions.findIndex(t => t.id === modalState.data!.id) : -1;
+             const index = isUpdate ? transactions.findIndex(t => t.id === modalState.data!.id) : -1;
 
-             if(index > -1) { // Update
-                const existingTx = transactions[index];
-                const changes: { field: string; from: any; to: any }[] = [];
-                if (existingTx.amount !== itemData.amount) changes.push({ field: 'amount', from: existingTx.amount, to: itemData.amount });
-                if (new Date(existingTx.date).toISOString().split('T')[0] !== new Date(itemData.date).toISOString().split('T')[0]) changes.push({ field: 'date', from: existingTx.date, to: itemData.date });
-                if (existingTx.notes !== itemData.notes) changes.push({ field: 'notes', from: existingTx.notes, to: itemData.notes });
-                if (existingTx.category !== itemData.category) changes.push({ field: 'category', from: existingTx.category, to: itemData.category });
-                if (existingTx.paymentMode !== itemData.paymentMode) changes.push({ field: 'paymentMode', from: existingTx.paymentMode, to: itemData.paymentMode });
-                if (changes.length > 0) historyEntry.changes = changes;
-
-                transactions[index] = { ...existingTx, ...itemData, history: [...(existingTx.history || []), historyEntry] };
+             if (index > -1) { // Update
+                 const existingTx = transactions[index];
+                 const changes: { field: string; from: any; to: any }[] = [];
+                 if (existingTx.amount !== itemData.amount) changes.push({ field: 'amount', from: existingTx.amount, to: itemData.amount });
+                 if (existingTx.notes !== itemData.notes) changes.push({ field: 'notes', from: existingTx.notes, to: itemData.notes });
+                 if (existingTx.date !== itemData.date) changes.push({ field: 'date', from: existingTx.date, to: itemData.date });
+                 if (existingTx.paymentMode !== itemData.paymentMode) changes.push({ field: 'paymentMode', from: existingTx.paymentMode, to: itemData.paymentMode });
+                 if (existingTx.category !== itemData.category) changes.push({ field: 'category', from: existingTx.category, to: itemData.category });
+                 if (changes.length > 0) historyEntry.changes = changes;
+                 
+                 transactions[index] = { ...existingTx, ...itemData, history: [...(existingTx.history || []), historyEntry] };
              } else { // Create
-                transactions.push({ id: uuidv4(), ...itemData, history: [historyEntry] });
+                 transactions.push({ id: uuidv4(), ...itemData, history: [historyEntry] });
              }
              newEvent.transactions = transactions;
         }
-        
-        onSave(newEvent);
+
+        setEvent(newEvent);
+        onSave(newEvent); // Persist immediately
         setModalState(null);
     };
-    
-    const requestDeleteItem = (id: string, type: 'charge' | 'transaction') => {
-        if(isEventLocked) return;
-        setDeleteConfirmation({ id, type });
-    };
-    
-    const confirmDeleteItem = () => {
-        if (isEventLocked || !deleteConfirmation || !deleteReason.trim() || !currentUser) {
-            alert("A reason for deletion is required.");
-            return;
-        }
 
+    const handleDeleteItem = (id: string, type: 'charge' | 'transaction', reason: string) => {
+        if (!currentUser) return;
+        
         const historyEntry: FinancialHistoryEntry = {
             timestamp: new Date().toISOString(),
             userId: currentUser.id,
             username: currentUser.username,
             action: 'deleted',
-            reason: deleteReason,
+            reason: reason,
         };
-        
+
         const newEvent = deepClone(event);
-        if (deleteConfirmation.type === 'charge') {
-            const charges = (newEvent.charges || []).map(c => {
-                if (c.id === deleteConfirmation.id) {
-                    return { ...c, isDeleted: true, history: [...(c.history || []), historyEntry] };
-                }
-                return c;
-            });
-            newEvent.charges = charges;
+        if (type === 'charge') {
+            const index = newEvent.charges?.findIndex(c => c.id === id);
+            if (index !== undefined && index > -1) {
+                newEvent.charges![index].isDeleted = true;
+                newEvent.charges![index].history = [...(newEvent.charges![index].history || []), historyEntry];
+            }
         } else {
-             const transactions = (newEvent.transactions || []).map(t => {
-                if (t.id === deleteConfirmation.id) {
-                    return { ...t, isDeleted: true, history: [...(t.history || []), historyEntry] };
-                }
-                return t;
-            });
-            newEvent.transactions = transactions;
+             const index = newEvent.transactions?.findIndex(t => t.id === id);
+             if (index !== undefined && index > -1) {
+                newEvent.transactions![index].isDeleted = true;
+                newEvent.transactions![index].history = [...(newEvent.transactions![index].history || []), historyEntry];
+             }
         }
         
+        setEvent(newEvent);
         onSave(newEvent);
         setDeleteConfirmation(null);
         setDeleteReason('');
     };
 
-    const handleExportSection = (title: string, items: (Charge | Transaction)[], headers: string[], dataKeys: string[]) => {
-        const activeItems = items.filter(i => !i.isDeleted);
-        const data = activeItems.map(item => dataKeys.map(key => (item as any)[key]));
-        exportFinanceSectionToPdf(title, headers, data, event, clientName);
-    };
-
-    const baseCost = useMemo(() => {
+    const {
+        model, pax, perPax, rent,
+        baseCost, totalCharges, totalBill, totalPayments,
+        totalExpenses, balanceDue, profit
+    } = useMemo(() => {
         const model = event.pricingModel || 'variable';
         const pax = event.pax || 0;
         const perPax = event.perPaxPrice || 0;
         const rent = event.rent || 0;
-        if (model === 'variable') return pax * perPax;
-        if (model === 'flat') return rent;
-        if (model === 'mix') return rent + (pax * perPax);
-        return 0;
+        
+        let baseCost = 0;
+        if (model === 'variable') baseCost = pax * perPax;
+        else if (model === 'flat') baseCost = rent;
+        else if (model === 'mix') baseCost = rent + (pax * perPax);
+
+        const totalCharges = (event.charges || []).filter(c => !c.isDeleted).reduce((sum, charge) => sum + charge.amount, 0);
+        const totalPayments = (event.transactions || []).filter(t => t.type === 'income' && !t.isDeleted).reduce((sum, payment) => sum + payment.amount, 0);
+        const totalExpenses = (event.transactions || []).filter(t => t.type === 'expense' && !t.isDeleted).reduce((sum, expense) => sum + expense.amount, 0);
+
+        const totalBill = baseCost + totalCharges;
+        const balanceDue = totalBill - totalPayments;
+        const profit = totalBill - totalExpenses;
+        
+        return { model, pax, perPax, rent, baseCost, totalCharges, totalBill, totalPayments, totalExpenses, balanceDue, profit };
     }, [event]);
 
-    const totalCharges = (event.charges || []).filter(c => !c.isDeleted).reduce((sum, charge) => sum + charge.amount, 0);
-    const totalIncome = (event.transactions || []).filter(t => t.type === 'income' && !t.isDeleted).reduce((sum, p) => sum + p.amount, 0);
-    const totalExpense = (event.transactions || []).filter(t => t.type === 'expense' && !t.isDeleted).reduce((sum, e) => sum + e.amount, 0);
-    const totalBill = baseCost + totalCharges;
-    const balanceDue = totalBill - totalIncome;
-    const netProfit = totalBill - totalExpense;
+    const hasWritePermission = useMemo(() => {
+        return permissionCore === 'modify' || permissionCharges === 'modify' || permissionPayments === 'modify' || permissionExpenses === 'modify';
+    }, [permissionCore, permissionCharges, permissionPayments, permissionExpenses]);
+    
+    // UI Components
+    const SummaryRow = ({ label, value, isBold = false }: { label: string, value: string, isBold?: boolean }) => (
+        <div className={`flex justify-between items-center py-2 ${isBold ? 'font-bold' : ''}`}>
+            <span>{label}</span>
+            <span>{value}</span>
+        </div>
+    );
 
-    let modalTitle = '';
-    let modalContent: React.ReactNode = null;
-    if (modalState) {
-        if (modalState.type === 'charge') {
-            modalTitle = (modalState.data?.id ? 'Edit Charge' : 'Add Charge');
-            modalContent = <ChargeForm onSave={handleSaveItem} onCancel={() => setModalState(null)} charge={modalState.data} eventPerPaxPrice={event.perPaxPrice || 0} />;
-        } else if (modalState.type === 'transaction') {
-            modalTitle = (modalState.data?.id ? 'Edit Transaction' : 'Add Transaction');
-            modalContent = <TransactionForm onSave={handleSaveItem} onCancel={() => setModalState(null)} transaction={modalState.data} />;
-        }
-    }
+    const Section = ({ title, data, type, permissionLevel }: { title: string, data: any[], type: 'charge' | 'transaction', permissionLevel: PermissionLevel }) => {
+        const canWrite = permissionLevel === 'modify';
+        const visibleData = showDeleted ? data : data.filter(item => !item.isDeleted);
+        
+        const openModal = (item: any | null) => {
+            if (type === 'charge') setModalState({ type: 'charge', data: item });
+            else setModalState({ type: 'transaction', data: { ...item, type: title.toLowerCase().includes('payment') ? 'income' : 'expense'} });
+        };
+        
+        const headers: Record<string, string[]> = {
+            'charge': ['Type', 'Amount', 'Notes'],
+            'transaction_income': ['Date', 'Mode', 'Notes', 'Amount'],
+            'transaction_expense': ['Date', 'Category', 'Notes', 'Amount']
+        };
 
-    return (
-        <div>
-            {modalState && (
-                <Modal isOpen={true} onClose={() => setModalState(null)} title={modalTitle}>
-                    {modalContent}
-                </Modal>
-            )}
-            {deleteConfirmation && (
-                <Modal isOpen={true} onClose={() => setDeleteConfirmation(null)} title="Confirm Deletion">
-                    <div>
-                        <label className="block text-sm font-medium">Reason for Deletion</label>
-                        <textarea
-                            value={deleteReason}
-                            onChange={e => setDeleteReason(e.target.value)}
-                            required
-                            className={inputStyle}
-                            rows={3}
-                            placeholder="e.g., Client cancelled this charge."
-                        />
-                        <div className="flex justify-end gap-3 pt-4">
-                            <button type="button" onClick={() => setDeleteConfirmation(null)} className={secondaryButton}>Cancel</button>
-                            <button type="button" onClick={confirmDeleteItem} className={dangerButton} disabled={!deleteReason.trim()}>Confirm Delete</button>
-                        </div>
+        const getTransactionType = () => title.toLowerCase().includes('payment') ? 'income' : 'expense';
+        const currentHeaders = type === 'charge' ? headers.charge : headers[`transaction_${getTransactionType()}`];
+        
+        const handleExport = () => {
+            if (!event || !clientName) return;
+            const exportHeaders = currentHeaders.filter(h => h !== 'Amount').concat('Amount');
+            const exportData = visibleData.map(item => {
+                 if (type === 'charge') {
+                     return [item.type, item.notes, item.amount];
+                 } else {
+                     return [item.date, item.paymentMode || item.category, item.notes, item.amount];
+                 }
+            });
+            exportFinanceSectionToPdf(title, exportHeaders, exportData, event, clientName);
+        };
+
+        const showPdfButton = (title.toLowerCase().includes('payment') || title.toLowerCase().includes('expense')) && permissionLevel !== 'none';
+
+        return (
+            <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold text-lg">{title}</h3>
+                    <div className="flex items-center gap-2">
+                        {showPdfButton && <button onClick={handleExport} className={secondaryButton}><FileDown size={16}/> PDF</button>}
+                        {canWrite && !isEventLocked && <button onClick={() => openModal(null)} className={primaryButton}><Plus size={16}/> Add</button>}
                     </div>
-                </Modal>
-            )}
-            {historyLog && (
-                <Modal isOpen={true} onClose={() => setHistoryLog(null)} title="Item History">
-                    <div className="max-h-[60vh] overflow-y-auto">
-                        <ul className="space-y-4">
-                            {[...(historyLog || [])].reverse().map((entry, index) => (
-                                <li key={index} className="p-3 bg-warm-gray-50 dark:bg-warm-gray-700/50 rounded-md">
-                                    <p className="font-semibold">{entry.action.charAt(0).toUpperCase() + entry.action.slice(1)} by {entry.username}</p>
-                                    <p className="text-sm text-warm-gray-500">{new Date(entry.timestamp).toLocaleString()}</p>
-                                    <p className="mt-2 text-sm italic">"{entry.reason}"</p>
-                                     {entry.changes && entry.changes.length > 0 && (
-                                        <ul className="text-xs mt-2 pl-4 list-disc space-y-1 text-warm-gray-600 dark:text-warm-gray-400">
-                                            {entry.changes.map((change, cIndex) => (
-                                                <li key={cIndex}>
-                                                    <span className="font-medium">{change.field.charAt(0).toUpperCase() + change.field.slice(1)}</span> changed from 
-                                                    <strong className="text-warm-gray-800 dark:text-warm-gray-200"> {formatValue(change.from, change.field)} </strong> to 
-                                                    <strong className="text-warm-gray-800 dark:text-warm-gray-200"> {formatValue(change.to, change.field)}</strong>.
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </li>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                         <thead className="bg-warm-gray-50 dark:bg-warm-gray-900/40">
+                            <tr>
+                                {currentHeaders.map(h => <th key={h} className="p-2 text-left font-semibold">{h}</th>)}
+                                <th className="p-2 text-right font-semibold">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {visibleData.map(item => (
+                                <tr key={item.id} className={`${item.isDeleted ? 'opacity-50 line-through' : ''}`}>
+                                    {type === 'charge' ? <>
+                                        <td>{item.type}</td>
+                                        <td>₹{item.amount.toLocaleString('en-IN')}</td>
+                                        <td>{item.notes}</td>
+                                    </> : <>
+                                        <td>{new Date(item.date).toLocaleDateString('en-GB')}</td>
+                                        <td>{item.paymentMode || item.category}</td>
+                                        <td>{item.notes}</td>
+                                        <td>₹{item.amount.toLocaleString('en-IN')}</td>
+                                    </>}
+                                    <td className="p-2 text-right">
+                                        <div className="flex justify-end gap-1">
+                                            <button onClick={() => setHistoryLog(item.history || [])} className={iconButton('hover:bg-blue-100')}><History size={16} className="text-blue-500"/></button>
+                                            {canWrite && !isEventLocked && !item.isDeleted && <>
+                                                <button onClick={() => openModal(item)} className={iconButton('hover:bg-primary-100')}><Edit size={16} className="text-primary-600"/></button>
+                                                <button onClick={() => setDeleteConfirmation({ id: item.id, type })} className={iconButton('hover:bg-accent-100')}><Trash2 size={16} className="text-accent-500"/></button>
+                                            </>}
+                                        </div>
+                                    </td>
+                                </tr>
                             ))}
-                         {(!historyLog || historyLog.length === 0) && <p className="text-center text-warm-gray-500">No history found.</p>}
+                        </tbody>
+                    </table>
+                    {visibleData.length === 0 && <p className="text-center text-warm-gray-500 py-4">No entries yet.</p>}
+                </div>
+            </div>
+        )
+    };
+    
+    return (
+        <div className="space-y-6">
+            {modalState && 
+                <Modal 
+                    isOpen={!!modalState} 
+                    onClose={() => setModalState(null)}
+                    title={
+                        modalState.type === 'charge' 
+                        ? (modalState.data?.id ? 'Edit Charge' : 'Add Charge')
+                        : (modalState.data?.id ? 'Edit Transaction' : 'Add Transaction')
+                    }
+                >
+                    {modalState.type === 'charge' 
+                        ? <ChargeForm onSave={handleSaveItem} onCancel={() => setModalState(null)} charge={modalState.data} eventPerPaxPrice={event.perPaxPrice || 0} />
+                        : <TransactionForm onSave={handleSaveItem} onCancel={() => setModalState(null)} transaction={modalState.data} />
+                    }
+                </Modal>
+            }
+            {deleteConfirmation && (
+                <Modal isOpen={!!deleteConfirmation} onClose={() => setDeleteConfirmation(null)} title="Confirm Deletion">
+                    <p>Please provide a reason for deleting this entry. This action cannot be undone, but the item will be archived.</p>
+                    <textarea value={deleteReason} onChange={e => setDeleteReason(e.target.value)} required className={inputStyle + " mt-2"} rows={3} />
+                    <div className="flex justify-end gap-2 mt-4">
+                        <button onClick={() => setDeleteConfirmation(null)} className={secondaryButton}>Cancel</button>
+                        <button onClick={() => handleDeleteItem(deleteConfirmation.id, deleteConfirmation.type, deleteReason)} disabled={!deleteReason.trim()} className={dangerButton}>Delete</button>
                     </div>
                 </Modal>
             )}
-             <div className="flex justify-between items-center pb-4 border-b mb-6">
-                <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                    Finances for: <span className="text-primary-600">{event.eventType}</span>
-                </h2>
-                <div className="flex items-center gap-2">
-                     <button onClick={onCancel} className={secondaryButton}><ArrowLeft size={16}/> Back</button>
+             {historyLog && (
+                <Modal isOpen={!!historyLog} onClose={() => setHistoryLog(null)} title="History Log" size="lg">
+                    <ul className="divide-y space-y-2 max-h-96 overflow-y-auto">
+                        {historyLog.slice().reverse().map((entry, i) => (
+                             <li key={i} className="pt-2">
+                                <p><strong>{entry.action.toUpperCase()}</strong> on {new Date(entry.timestamp).toLocaleString()}</p>
+                                <p>by {entry.username}</p>
+                                <p><strong>Reason:</strong> {entry.reason}</p>
+                                {entry.changes && entry.changes.length > 0 && <div className="mt-1">
+                                    <p className="font-semibold">Changes:</p>
+                                    <ul className="list-disc pl-5 text-sm">
+                                        {entry.changes.map((c, j) => <li key={j}><strong>{c.field}:</strong> "{formatValue(c.from, c.field)}" to "{formatValue(c.to, c.field)}"</li>)}
+                                    </ul>
+                                </div>}
+                            </li>
+                        ))}
+                    </ul>
+                </Modal>
+            )}
+
+            <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700">
+                <div className="flex items-center gap-3">
+                    <FilePenLine size={32} className="text-primary-500"/>
+                    <div>
+                        <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                            Financial Manager
+                        </h2>
+                        <p className="text-warm-gray-500">{clientName} - {event.eventType} - {formatDateRange(event.startDate, event.endDate)}</p>
+                    </div>
+                </div>
+                 <div className="flex items-center gap-2">
+                    {permissionCore !== 'none' && <button onClick={() => exportFinanceToPdf(event, clientName)} className={secondaryButton}><FileDown size={16}/> Full Export</button>}
+                    <button onClick={onCancel} className={secondaryButton}><ArrowLeft size={16}/> Back</button>
                 </div>
             </div>
             
-            <div className="flex justify-end mb-4">
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                    <input
-                        type="checkbox"
-                        checked={showDeleted}
-                        onChange={(e) => setShowDeleted(e.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                    />
-                    Show Deleted Items
-                </label>
-            </div>
-
-            <div className="flex flex-col lg:flex-row flex-wrap gap-6">
-                 {/* Main Inputs & Summary Column */}
-                {(permissionCore !== 'none') && (
-                    <div className="w-full lg:w-[380px] flex-shrink-0 space-y-6">
-                        <div className="p-4 bg-white dark:bg-warm-gray-800 rounded-lg shadow-md">
-                            <h3 className="font-bold text-lg mb-4">Core Figures</h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium">Pricing Model</label>
-                                    <select value={event.pricingModel || 'variable'} onChange={e => handlePricingModelChange(e.target.value as any)} className={inputStyle} disabled={isEventLocked || permissionCore !== 'modify'}>
-                                        <option value="variable">Variable (Per Pax)</option>
-                                        <option value="flat">Flat Rent</option>
-                                        <option value="mix">Mix (Rent + Per Pax)</option>
-                                    </select>
-                                </div>
-                                
-                                {(event.pricingModel === 'variable' || event.pricingModel === 'mix') && (
-                                    <>
-                                        <div>
-                                            <label className="block text-sm font-medium">Guest Count (PAX)</label>
-                                            <input type="number" value={event.pax || ''} onChange={e => handleFieldChange('pax', e.target.value)} className={inputStyle} disabled={isEventLocked || permissionCore !== 'modify'}/>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium">Price Per Pax (₹)</label>
-                                            <input type="number" value={event.perPaxPrice || ''} onChange={e => handleFieldChange('perPaxPrice', e.target.value)} className={inputStyle} disabled={isEventLocked || permissionCore !== 'modify'} />
-                                        </div>
-                                    </>
-                                )}
-
-                                {(event.pricingModel === 'flat' || event.pricingModel === 'mix') && (
-                                    <div>
-                                        <label className="block text-sm font-medium">Flat Rent (₹)</label>
-                                        <input type="number" value={event.rent || ''} onChange={e => handleFieldChange('rent', e.target.value)} className={inputStyle} disabled={isEventLocked || permissionCore !== 'modify'} />
-                                    </div>
-                                )}
-                            </div>
-                            {permissionCore === 'modify' && <button type="button" onClick={handleCoreSave} className={`${primaryButton} w-full mt-4`} disabled={isEventLocked}><Save size={18}/> Save Core Figures</button>}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {permissionCore !== 'none' && (
+                    <div className="md:col-span-1 p-6 bg-white dark:bg-warm-gray-800 rounded-lg shadow-md space-y-4">
+                        <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-xl">Summary</h3>
+                            {isEventLocked && <span className="text-xs font-bold text-red-500 bg-red-100 px-2 py-1 rounded-full">LOCKED</span>}
                         </div>
                         
-                        <div className="p-4 bg-white dark:bg-warm-gray-800 rounded-lg shadow-md">
-                            <h3 className="font-bold text-lg mb-4">Financial Summary</h3>
-                            <div className="space-y-2 text-sm">
-                                <SummaryRow label="Base Cost" value={baseCost} />
-                                <SummaryRow label="Additional Charges" value={totalCharges} />
-                                <SummaryRow label="Total Bill" value={totalBill} isBold={true}/>
-                                <hr className="my-2 border-warm-gray-200 dark:border-warm-gray-600"/>
-                                <SummaryRow label="Total Income" value={totalIncome} color="text-green-600 dark:text-green-400"/>
-                                <SummaryRow label="Total Expense" value={-totalExpense} color="text-red-600 dark:text-red-400"/>
-                                <hr className="my-2 border-warm-gray-200 dark:border-warm-gray-600"/>
-                                <SummaryRow label="Balance Due" value={balanceDue} isBold={true} />
-                                <SummaryRow label="Net Profit" value={netProfit} isBold={true} color={netProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}/>
+                        <div className="p-4 border rounded-md">
+                            <h4 className="font-semibold">Pricing Model</h4>
+                            <div className="flex gap-4 mt-2">
+                                <label><input type="radio" name="pricing" value="variable" checked={model === 'variable'} onChange={(e) => handlePricingModelChange(e.target.value as any)} disabled={isEventLocked || permissionCore !== 'modify'}/> Per Pax</label>
+                                <label><input type="radio" name="pricing" value="flat" checked={model === 'flat'} onChange={(e) => handlePricingModelChange(e.target.value as any)} disabled={isEventLocked || permissionCore !== 'modify'}/> Flat</label>
+                                <label><input type="radio" name="pricing" value="mix" checked={model === 'mix'} onChange={(e) => handlePricingModelChange(e.target.value as any)} disabled={isEventLocked || permissionCore !== 'modify'}/> Mix</label>
                             </div>
-                            <button onClick={() => exportFinanceToPdf(event, clientName)} className={`${secondaryButton} w-full mt-4`}><FileDown size={16}/> Export PDF Summary</button>
+                        </div>
+
+                        {(model === 'variable' || model === 'mix') && (
+                            <div>
+                                <label className="text-sm font-medium">Per Pax Rate</label>
+                                <input type="number" value={perPax} onChange={(e) => handleFieldChange('perPaxPrice', e.target.value)} disabled={isEventLocked || permissionCore !== 'modify'} className={inputStyle} />
+                            </div>
+                        )}
+                        {(model === 'flat' || model === 'mix') && (
+                            <div>
+                                <label className="text-sm font-medium">Base Rent</label>
+                                <input type="number" value={rent} onChange={(e) => handleFieldChange('rent', e.target.value)} disabled={isEventLocked || permissionCore !== 'modify'} className={inputStyle} />
+                            </div>
+                        )}
+
+                        <div className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                            <SummaryRow label="Base Cost" value={`₹${baseCost.toLocaleString('en-IN')}`} />
+                            <SummaryRow label="Additional Charges" value={`₹${totalCharges.toLocaleString('en-IN')}`} />
+                            <SummaryRow label="Total Bill" value={`₹${totalBill.toLocaleString('en-IN')}`} isBold={true}/>
+                            <SummaryRow label="Payments Received" value={`₹${totalPayments.toLocaleString('en-IN')}`} />
+                            <SummaryRow label="Total Expenses" value={`- ₹${totalExpenses.toLocaleString('en-IN')}`} />
+                            <SummaryRow label="Balance Due" value={`₹${balanceDue.toLocaleString('en-IN')}`} isBold={true}/>
+                            <SummaryRow label="Est. Profit" value={`₹${profit.toLocaleString('en-IN')}`} isBold={true}/>
+                        </div>
+                        
+                        <div className="flex justify-end pt-4">
+                            {permissionCore === 'modify' && !isEventLocked && <button onClick={handleCoreSave} className={primaryButton}>Save Pricing</button>}
                         </div>
                     </div>
-                 )}
-
-                {/* Tables Column */}
-                {(permissionCharges !== 'none' || permissionPayments !== 'none' || permissionExpenses !== 'none') && (
-                    <div className="flex-1 min-w-[300px] space-y-6">
-                        {permissionCharges !== 'none' && <FinanceTable title="Additional Charges" items={event.charges || []} onAdd={() => setModalState({type: 'charge', data: null})} onEdit={(item) => setModalState({type: 'charge', data: item})} onDelete={(id) => requestDeleteItem(id, 'charge')} onViewHistory={(h) => setHistoryLog(h)} headers={['Type', 'Amount', 'Notes']} dataKeys={['type', 'amount', 'notes']} canModify={permissionCharges === 'modify' && !isEventLocked} showDeleted={showDeleted} />}
-                        {permissionPayments !== 'none' && <FinanceTable title="Payments" items={(event.transactions || []).filter(t=>t.type==='income')} onAdd={() => setModalState({type: 'transaction', data: {type: 'income'}})} onEdit={(item) => setModalState({type: 'transaction', data: item})} onDelete={(id) => requestDeleteItem(id, 'transaction')} onViewHistory={(h) => setHistoryLog(h)} headers={['Date', 'Mode', 'Notes', 'Amount']} dataKeys={['date', 'paymentMode', 'notes', 'amount']} canModify={permissionPayments === 'modify' && !isEventLocked} showDeleted={showDeleted} onExport={() => handleExportSection('Payments', (event.transactions || []).filter(t => t.type === 'income'), ['Date', 'Mode', 'Notes', 'Amount'], ['date', 'paymentMode', 'notes', 'amount'])} />}
-                        {permissionExpenses !== 'none' && <FinanceTable title="Expenses" items={(event.transactions || []).filter(t=>t.type==='expense')} onAdd={() => setModalState({type: 'transaction', data: {type: 'expense'}})} onEdit={(item) => setModalState({type: 'transaction', data: item})} onDelete={(id) => requestDeleteItem(id, 'transaction')} onViewHistory={(h) => setHistoryLog(h)} headers={['Date', 'Category', 'Notes', 'Amount']} dataKeys={['date', 'category', 'notes', 'amount']} canModify={permissionExpenses === 'modify' && !isEventLocked} showDeleted={showDeleted} onExport={() => handleExportSection('Expenses', (event.transactions || []).filter(t => t.type === 'expense'), ['Date', 'Category', 'Notes', 'Amount'], ['date', 'category', 'notes', 'amount'])} />}
-                    </div>
                 )}
+
+                <div className={`${permissionCore === 'none' ? 'md:col-span-3' : 'md:col-span-2'} space-y-6`}>
+                    <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-xl">Breakdown</h3>
+                        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show Deleted</label>
+                    </div>
+                    {permissionCharges !== 'none' && <Section title="Additional Charges" data={event.charges || []} type="charge" permissionLevel={permissionCharges} />}
+                    {permissionPayments !== 'none' && <Section title="Payments (Income)" data={(event.transactions || []).filter(t => t.type === 'income')} type="transaction" permissionLevel={permissionPayments} />}
+                    {permissionExpenses !== 'none' && <Section title="Expenses" data={(event.transactions || []).filter(t => t.type === 'expense')} type="transaction" permissionLevel={permissionExpenses} />}
+                </div>
             </div>
         </div>
     );
 };
-
-const SummaryRow = ({ label, value, isBold=false, color='' }: {label: string, value: number, isBold?: boolean, color?: string}) => (
-    <div className={`flex justify-between items-center ${isBold ? 'font-bold' : ''} ${color}`}>
-        <span>{label}</span>
-        <span>₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-    </div>
-);
-
-const FinanceTable = ({ title, items, onAdd, onEdit, onDelete, onViewHistory, headers, dataKeys, canModify, showDeleted, onExport }: {title:string, items: any[], onAdd: ()=>void, onEdit: (item:any)=>void, onDelete: (id:string)=>void, onViewHistory: (h: FinancialHistoryEntry[]) => void, headers: string[], dataKeys: string[], canModify: boolean, showDeleted: boolean, onExport?: () => void}) => {
-    
-    const itemsToDisplay = useMemo(() => {
-        const filtered = showDeleted ? items : items.filter(i => !i.isDeleted);
-        // Transactions have a 'date' field, Charges do not. Sort if possible.
-        if (filtered.length > 0 && 'date' in filtered[0]) {
-             return filtered.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        }
-        return filtered;
-    }, [items, showDeleted]);
-
-    return (
-        <div className="p-4 bg-white dark:bg-warm-gray-800 rounded-lg shadow-md">
-            <div className="flex justify-between items-center mb-2">
-                <h3 className="font-bold text-lg">{title}</h3>
-                <div className="flex items-center gap-2">
-                    {onExport && <button onClick={onExport} className={secondaryButton}><FileDown size={16}/> PDF</button>}
-                    {canModify && <button onClick={onAdd} className={secondaryButton}><Plus size={16}/> Add</button>}
-                </div>
-            </div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                    <thead>
-                        <tr className="border-b border-warm-gray-200 dark:border-warm-gray-700">
-                            {headers.map(h => <th key={h} className="px-2 py-2 text-left font-semibold">{h}</th>)}
-                            <th className="px-2 py-2 text-right font-semibold">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-warm-gray-100 dark:divide-warm-gray-700/50">
-                        {itemsToDisplay.length === 0 ? (
-                            <tr><td colSpan={headers.length + 1} className="text-center py-4 text-warm-gray-500">No {title.toLowerCase()} yet.</td></tr>
-                        ) : (
-                            itemsToDisplay.map(item => {
-                                const hasHistory = item.history && item.history.length > 0;
-                                const isModified = item.history && item.history.length > 1;
-
-                                return (
-                                <tr key={item.id} className={item.isDeleted ? 'opacity-50 text-warm-gray-500 line-through' : ''}>
-                                    {dataKeys.map((key) => {
-                                        let cellContent;
-                                        if (title === 'Additional Charges' && item.type === 'Additional PAX' && key === 'notes') {
-                                            cellContent = (
-                                                <div>
-                                                    <span className="font-semibold">{item.notes}</span>
-                                                    <div className="text-xs text-warm-gray-500">
-                                                        {item.additionalPaxCount || 0} PAX - ₹{(item.discountAmount || 0).toLocaleString('en-IN')} Discount
-                                                    </div>
-                                                </div>
-                                            );
-                                        } else {
-                                            cellContent = (
-                                                <span>
-                                                    {key === 'amount' ? `₹${item[key].toLocaleString('en-IN')}` : key === 'date' ? new Date(item[key]).toLocaleDateString('en-GB') : item[key]}
-                                                </span>
-                                            );
-                                        }
-
-                                        return (
-                                            <td key={key} className="px-2 py-2 whitespace-nowrap">
-                                                <div className="flex items-center gap-2">
-                                                    {key === dataKeys[0] && isModified && (
-                                                        <span title="This item has been modified.">
-                                                            <FilePenLine size={14} className="text-amber-500"/>
-                                                        </span>
-                                                    )}
-                                                    {cellContent}
-                                                </div>
-                                            </td>
-                                        );
-                                    })}
-                                    <td className="px-2 py-2 text-right">
-                                        <div className="flex justify-end gap-1">
-                                            {hasHistory && <button onClick={() => onViewHistory(item.history || [])} className={iconButton('hover:bg-blue-100 dark:hover:bg-blue-800')} title="View History"><History size={14} className="text-blue-600"/></button>}
-                                            {canModify && <button onClick={() => onEdit(item)} className={iconButton('hover:bg-primary-100')} disabled={item.isDeleted}><Edit size={14} className="text-primary-600"/></button>}
-                                            {canModify && <button onClick={() => onDelete(item.id)} className={iconButton('hover:bg-accent-100')} disabled={item.isDeleted}><Trash2 size={14} className="text-accent-500"/></button>}
-                                        </div>
-                                    </td>
-                                </tr>
-                                )
-                            })
-                        )}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-}

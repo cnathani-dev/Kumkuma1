@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Charge } from '../../types';
-import { useChargeTypes } from '../../App';
+import { useChargeTypes } from '../../contexts/AppContexts';
 import { inputStyle, primaryButton, secondaryButton } from '../../components/common/styles';
 
 export const ChargeForm = ({ onSave, onCancel, charge, eventPerPaxPrice }: {

@@ -1,9 +1,10 @@
 
 
 
+
 import React, { useState, useMemo } from 'react';
 import { Catalog, Item, AppCategory } from '../../types';
-import { useCatalogs, useItems, useAppCategories } from '../../App';
+import { useCatalogs, useItems, useAppCategories } from '../../contexts/AppContexts';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
 import { Plus, Edit, Trash2, Save, X } from 'lucide-react';
 import { CategoryTree } from '../../components/CategoryTree';

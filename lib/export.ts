@@ -1,18 +1,14 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { Event, Item, LiveCounter, LiveCounterItem, AppCategory, Catalog, MenuTemplate, Transaction, Charge, ItemType, Client, PlanCategory } from '../types';
+import { Event, Item, LiveCounter, LiveCounterItem, AppCategory, Catalog, MenuTemplate, Transaction, Charge, ItemType, Client, PlanCategory, Recipe, RawMaterial, MuhurthamDate } from '../types';
 import { kumkumaCaterersLogoBase64 } from './branding';
-import { formatYYYYMMDD } from './utils';
+import { formatYYYYMMDD, formatDateRange } from './utils';
 
 // --- HELPER FUNCTIONS ---
 
 const getEventDisplayName = (event: Event, clientName: string) => {
-    const dateString = formatYYYYMMDD(event.date, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-    });
+    const dateString = formatDateRange(event.startDate, event.endDate);
     const session = event.session.charAt(0).toUpperCase() + event.session.slice(1);
     
     let paxInfo = event.pax ? `(${event.pax} PAX)` : '';
@@ -395,13 +391,13 @@ export const exportToPdfWithOptions = (
             });
         }
 
-        if (event.specialInstructions) {
+        if (event.notes) {
              y = renderCommonSection(y, 'Special Instructions', () => {
                  y = checkPageBreak(doc, y, 10);
                  doc.setFont('helvetica', 'normal');
                  doc.setFontSize(11);
                  doc.setTextColor(82, 82, 82);
-                 const lines = doc.splitTextToSize(event.specialInstructions, pageW - margin * 2);
+                 const lines = doc.splitTextToSize(event.notes, pageW - margin * 2);
                  doc.text(lines, margin, y);
                  y += doc.getTextDimensions(lines).h + 5;
                  return y;
@@ -595,7 +591,7 @@ export const exportToExcel = (
         XLSX.utils.book_append_sheet(wb, ws_lc, 'Live Counters');
     }
     
-    const fileName = `${client.name}_${event.eventType}_${event.date}`.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const fileName = `${client.name}_${event.eventType}_${event.startDate}`.replace(/[^a-z0-9]/gi, '_').toLowerCase();
     XLSX.writeFile(wb, `${fileName}.xlsx`);
 };
 
@@ -685,7 +681,7 @@ export const exportFinanceToPdf = (event: Event, clientName: string) => {
         doc.setFontSize(12);
         doc.text(`Client: ${clientName}`, margin, yPos);
         yPos += 6;
-        const eventDateString = formatYYYYMMDD(event.date, { year: 'numeric', month: 'long', day: 'numeric' });
+        const eventDateString = formatDateRange(event.startDate, event.endDate);
         doc.text(`Date: ${eventDateString}`, margin, yPos);
         yPos += 12;
 
@@ -1040,7 +1036,8 @@ export const downloadClientEventSample = () => {
             "Client Name": "New Corp", 
             "Client Phone": "1234567890", 
             "Event Type": "Product Launch", 
-            "Event Date": "2024-12-25",
+            "Start Date": "2024-12-25",
+            "End Date": "2024-12-26",
             "Session": "dinner",
             "Location": "Om Hall-1",
             "PAX": 150,
@@ -1051,7 +1048,8 @@ export const downloadClientEventSample = () => {
             "Client Name": "New Corp", 
             "Client Phone": "1234567890", 
             "Event Type": "Annual Party", 
-            "Event Date": "2024-12-31",
+            "Start Date": "2024-12-31",
+            "End Date": "",
             "Session": "dinner",
             "Location": "ODC",
             "PAX": 0,
@@ -1139,7 +1137,8 @@ export const exportAllEvents = (events: Event[], clients: Client[]) => {
         ID: event.id,
         'Event Type': event.eventType,
         'Client Name': clientMap.get(event.clientId) || 'Unknown Client',
-        'Event Date': formatYYYYMMDD(event.date, { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        'Start Date': event.startDate,
+        'End Date': event.endDate,
         Session: event.session,
         Location: event.location,
         State: event.state,
@@ -1191,7 +1190,7 @@ export const exportKitchenPlanToPdf = (event: Event, client: Client, planData: P
         doc.setTextColor(38, 38, 38);
         doc.text(`${client.name} - ${event.eventType}`, margin, yPos);
 
-        const eventDateString = formatYYYYMMDD(event.date, { year: 'numeric', month: 'long', day: 'numeric' });
+        const eventDateString = formatDateRange(event.startDate, event.endDate);
 
         doc.text(`Date: ${eventDateString}`, pageW - margin, yPos, { align: 'right' });
         yPos += 7;
@@ -1256,7 +1255,7 @@ export const exportKitchenPlanToPdf = (event: Event, client: Client, planData: P
             yPos = (doc as any).lastAutoTable.finalY + 10;
         });
 
-        if (event.specialInstructions) {
+        if (event.notes) {
              if (yPos + 25 > pageH - margin) {
                 doc.addPage();
                 yPos = margin;
@@ -1271,7 +1270,7 @@ export const exportKitchenPlanToPdf = (event: Event, client: Client, planData: P
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(10);
             doc.setTextColor(82, 82, 82);
-            const lines = doc.splitTextToSize(event.specialInstructions, pageW - (margin * 2));
+            const lines = doc.splitTextToSize(event.notes, pageW - (margin * 2));
             doc.text(lines, margin, textY);
             yPos = textY + (doc.getTextDimensions(lines).h) + 10;
         }
@@ -1317,7 +1316,7 @@ export const exportFinanceSectionToPdf = (
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(11);
         doc.setTextColor(115, 115, 115);
-        const eventDateString = formatYYYYMMDD(event.date, { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const eventDateString = formatDateRange(event.startDate, event.endDate);
         doc.text(`${clientName} - ${event.eventType} - ${eventDateString}`, margin, yPos);
         yPos += 10;
 
@@ -1358,3 +1357,91 @@ export const exportFinanceSectionToPdf = (
         alert(`Could not generate ${title} PDF. An error occurred. Error: ${e instanceof Error ? e.message : String(e)}`);
     }
 }
+
+export const exportAllRecipes = (recipes: Recipe[], rawMaterials: RawMaterial[]) => {
+    const rawMaterialMap = new Map(rawMaterials.map(rm => [rm.id, rm]));
+    const data: any[] = [];
+
+    recipes.forEach(recipe => {
+        if (!recipe.rawMaterials || recipe.rawMaterials.length === 0) {
+            data.push({
+                'Recipe': recipe.name,
+                'Instructions': recipe.instructions,
+                'Raw Material': '',
+                'Raw Material Unit': '',
+                'Raw Material Qty': '',
+                'Output Quantity': recipe.outputKg > 0 ? recipe.outputKg : recipe.outputLitres,
+                'Output Unit': recipe.outputKg > 0 ? 'kg' : 'litres',
+            });
+        } else {
+            recipe.rawMaterials.forEach((rm, index) => {
+                const rawMaterialDetails = rawMaterialMap.get(rm.rawMaterialId);
+                const row: any = {
+                    'Recipe': recipe.name,
+                    'Raw Material': rawMaterialDetails?.name || `(Unknown ID: ${rm.rawMaterialId})`,
+                    'Raw Material Unit': rawMaterialDetails?.unit || '',
+                    'Raw Material Qty': rm.quantity,
+                };
+
+                if (index === 0) {
+                    row['Instructions'] = recipe.instructions;
+                    row['Output Quantity'] = recipe.outputKg > 0 ? recipe.outputKg : recipe.outputLitres;
+                    row['Output Unit'] = recipe.outputKg > 0 ? 'kg' : (recipe.outputLitres > 0 ? 'litres' : '');
+                } else {
+                    row['Instructions'] = '';
+                    row['Output Quantity'] = '';
+                    row['Output Unit'] = '';
+                }
+                data.push(row);
+            });
+        }
+    });
+
+    exportReportToExcel(data, "all_recipes.xlsx", "Recipes");
+};
+
+export const downloadRecipeSample = () => {
+    const sampleData = [
+        { 
+            "Recipe": "Tomato Soup",
+            "Instructions": "1. Saute onions.\n2. Add tomatoes.\n3. Blend.",
+            "Raw Material": "Tomato",
+            "Raw Material Unit": "kg",
+            "Raw Material Qty": 5,
+            "Output Quantity": 4.5,
+            "Output Unit": "litres"
+        },
+        { 
+            "Recipe": "Tomato Soup",
+            "Instructions": "",
+            "Raw Material": "Onion",
+            "Raw Material Unit": "kg",
+            "Raw Material Qty": 1,
+            "Output Quantity": "",
+            "Output Unit": ""
+        },
+        { 
+            "Recipe": "Tomato Soup",
+            "Instructions": "",
+            "Raw Material": "Salt",
+            "Raw Material Unit": "grams",
+            "Raw Material Qty": 50,
+            "Output Quantity": "",
+            "Output Unit": ""
+        },
+    ];
+    exportReportToExcel(sampleData, "recipe_import_sample.xlsx", "Recipes");
+};
+
+export const exportAllMuhurthamDates = (dates: MuhurthamDate[]) => {
+    const data = dates.map(d => ({ Date: d.date })).sort((a,b) => a.Date.localeCompare(b.Date));
+    exportReportToExcel(data, "all_muhurtham_dates.xlsx", "Muhurtham Dates");
+};
+
+export const downloadMuhurthamDateSample = () => {
+    const sampleData = [
+        { Date: "2024-11-15" },
+        { Date: "2024-12-02" },
+    ];
+    exportReportToExcel(sampleData, "muhurtham_dates_import_sample.xlsx", "Muhurtham Dates");
+};

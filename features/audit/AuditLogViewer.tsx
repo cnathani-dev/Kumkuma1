@@ -1,7 +1,8 @@
 
 
+
 import React, { useState, useMemo } from 'react';
-import { useAuditLogs, useUsers, useClients } from '../../App';
+import { useAuditLogs, useUsers, useClients } from '../../contexts/AppContexts';
 import { inputStyle } from '../../components/common/styles';
 
 export const AuditLogViewer = () => {

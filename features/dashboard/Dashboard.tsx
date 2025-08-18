@@ -1,5 +1,7 @@
+
+
 import React, { useMemo, useState } from 'react';
-import { useEvents, useClients } from '../../App';
+import { useEvents, useClients } from '../../contexts/AppContexts';
 import { useAuth, useUserPermissions } from '../../contexts/AuthContext';
 import { Event, EventSession, EventState, StateChangeHistoryEntry, PermissionLevel } from '../../types';
 import { EventCard } from '../../components/EventCard';
@@ -61,12 +63,14 @@ export const Dashboard = ({ onNavigate, managedEvents }: {
 
     const stats = useMemo(() => {
         const now = new Date();
-        const upcomingEvents = managedEvents.filter(e => yyyyMMDDToDate(e.date) >= now && e.state === 'confirmed');
-        const activeLeads = managedEvents.filter(e => yyyyMMDDToDate(e.date) >= now && e.state === 'lead');
-        const menusToFinalize = managedEvents.filter(e => e.state === 'confirmed' && e.status === 'draft' && e.templateId !== 'NO_FOOD');
+        now.setHours(0, 0, 0, 0); // Start of today for comparison
+
+        const upcomingEvents = managedEvents.filter(e => yyyyMMDDToDate(e.endDate || e.startDate) >= now && e.state === 'confirmed');
+        const activeLeads = managedEvents.filter(e => yyyyMMDDToDate(e.endDate || e.startDate) >= now && e.state === 'lead');
+        const menusToFinalize = managedEvents.filter(e => yyyyMMDDToDate(e.endDate || e.startDate) >= now && e.state === 'confirmed' && e.status === 'draft' && e.templateId !== 'NO_FOOD');
         
         const paymentsToCollect = managedEvents.filter(e => {
-            if (yyyyMMDDToDate(e.date) < now || e.state !== 'confirmed') return false;
+            if (e.state !== 'confirmed') return false;
             
             const { balanceDue } = calculateFinancials(e);
             
@@ -83,22 +87,29 @@ export const Dashboard = ({ onNavigate, managedEvents }: {
 
     const filteredEvents = useMemo(() => {
         if (dateFilter) {
-            return managedEvents.filter(event => event.date === dateFilter);
+            return managedEvents.filter(event => {
+                const start = yyyyMMDDToDate(event.startDate);
+                const end = event.endDate ? yyyyMMDDToDate(event.endDate) : start;
+                const filterDate = yyyyMMDDToDate(dateFilter);
+                return filterDate >= start && filterDate <= end;
+            });
         }
         
         const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
         if (activeFilter === 'upcoming') {
-            return managedEvents.filter(e => yyyyMMDDToDate(e.date) >= now && e.state === 'confirmed');
+            return managedEvents.filter(e => yyyyMMDDToDate(e.endDate || e.startDate) >= now && e.state === 'confirmed');
         }
         if (activeFilter === 'leads') {
-            return managedEvents.filter(e => yyyyMMDDToDate(e.date) >= now && e.state === 'lead');
+            return managedEvents.filter(e => yyyyMMDDToDate(e.endDate || e.startDate) >= now && e.state === 'lead');
         }
         if (activeFilter === 'finalize') {
-            return managedEvents.filter(e => e.state === 'confirmed' && e.status === 'draft' && e.templateId !== 'NO_FOOD');
+            return managedEvents.filter(e => yyyyMMDDToDate(e.endDate || e.startDate) >= now && e.state === 'confirmed' && e.status === 'draft' && e.templateId !== 'NO_FOOD');
         }
         if (activeFilter === 'collect') {
             return managedEvents.filter(e => {
-                if (yyyyMMDDToDate(e.date) < now || e.state !== 'confirmed') return false;
+                if (e.state !== 'confirmed') return false;
                 
                 const { balanceDue } = calculateFinancials(e);
                 
@@ -106,7 +117,7 @@ export const Dashboard = ({ onNavigate, managedEvents }: {
             });
         }
         // Default (null filter) shows all upcoming leads and confirmed events
-        return managedEvents.filter(e => (e.state === 'confirmed' || e.state === 'lead') && yyyyMMDDToDate(e.date) >= now);
+        return managedEvents.filter(e => (e.state === 'confirmed' || e.state === 'lead') && yyyyMMDDToDate(e.endDate || e.startDate) >= now);
     }, [activeFilter, managedEvents, dateFilter]);
     
     const filterTitles: Record<string, string> = {
@@ -210,11 +221,11 @@ export const Dashboard = ({ onNavigate, managedEvents }: {
         : activeFilter ? filterTitles[activeFilter] : "Upcoming Events";
 
     const groupedAndSortedEvents = useMemo(() => {
-        const sorted = filteredEvents.sort((a, b) => yyyyMMDDToDate(a.date).getTime() - yyyyMMDDToDate(b.date).getTime());
+        const sorted = filteredEvents.sort((a, b) => a.startDate.localeCompare(b.startDate));
         const groups: { [key: string]: { monthName: string, events: Event[] } } = {};
         
         sorted.forEach(event => {
-            const eventDate = yyyyMMDDToDate(event.date);
+            const eventDate = yyyyMMDDToDate(event.startDate);
             const monthKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
             const monthName = eventDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
@@ -296,7 +307,7 @@ export const Dashboard = ({ onNavigate, managedEvents }: {
                 </div>
             </div>
             
-             {view === 'grid' && (
+             {view === 'grid' && !dateFilter && (
                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 my-6">
                         <StatCard title="Active Leads" value={stats.activeLeads} icon={BadgeHelp} color="text-yellow-500" isActive={activeFilter === 'leads'} onClick={() => setActiveFilter(activeFilter === 'leads' ? null : 'leads')}/>
                         <StatCard title="Upcoming Events" value={stats.upcomingEvents} icon={CalendarDays} color="text-green-500" isActive={activeFilter === 'upcoming'} onClick={() => setActiveFilter(activeFilter === 'upcoming' ? null : 'upcoming')}/>
@@ -339,6 +350,7 @@ export const Dashboard = ({ onNavigate, managedEvents }: {
                                                         canModify={canModify}
                                                         canAccessFinances={canAccessFinances}
                                                         showClientName={true}
+                                                        onClientClick={() => onNavigate('clients', event.clientId)}
                                                         onStateChange={handleStateChange}
                                                         onRequestCancel={handleRequestCancel}
                                                     />

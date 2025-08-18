@@ -1,18 +1,27 @@
 
+
 import React, { useState, useEffect } from 'react';
-import { Client } from '../../types';
+import { Client, Event, EventSession } from '../../types';
 import { inputStyle, primaryButton, secondaryButton } from '../common/styles';
 import { Save } from 'lucide-react';
-import { useReferralSources } from '../../App';
+import { useReferralSources, useLocations, useEventTypes } from '../../contexts/AppContexts';
 
-export const ClientForm = ({ onSave, onCancel, client }: {
+type EventData = Omit<Event, 'id' | 'clientId' | 'createdAt' | 'status' | 'itemIds' | 'liveCounters' | 'stateHistory' | 'history' | 'transactions' | 'charges'>;
+
+export const ClientForm = ({ onSave, onCancel, client, saveButtonText }: {
     onSave: (client: Client | Omit<Client, 'id'>) => void;
     onCancel: () => void;
     client?: Client | null;
+    saveButtonText?: string;
 }) => {
     const { settings: referralSources } = useReferralSources();
+    
+    // Client states
     const [name, setName] = useState(client?.name || '');
     const [phone, setPhone] = useState(client?.phone || '');
+    const [email, setEmail] = useState(client?.email || '');
+    const [company, setCompany] = useState(client?.company || '');
+    const [address, setAddress] = useState(client?.address || '');
     const [referredBy, setReferredBy] = useState(client?.referredBy || '');
     const [hasSystemAccess, setHasSystemAccess] = useState(client?.hasSystemAccess || false);
     const [status, setStatus] = useState<'active' | 'inactive'>(client?.status || 'active');
@@ -49,10 +58,14 @@ export const ClientForm = ({ onSave, onCancel, client }: {
         const clientData = {
             name: name.trim(),
             phone: phone.trim(),
+            email: email.trim(),
+            company: company.trim(),
+            address: address.trim(),
             referredBy: referredBy,
             hasSystemAccess,
             status,
         };
+
         if (client && 'id' in client) {
             onSave({ id: client.id, ...clientData });
         } else {
@@ -67,13 +80,27 @@ export const ClientForm = ({ onSave, onCancel, client }: {
                     <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">Client Name</label>
                     <input type="text" value={name} onChange={e => setName(e.target.value)} required className={inputStyle} />
                 </div>
+                 <div>
+                    <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">Company</label>
+                    <input type="text" value={company} onChange={e => setCompany(e.target.value)} className={inputStyle} />
+                </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">Phone Number</label>
                     <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className={inputStyle} />
                     {phoneError && <p className="text-xs text-red-500 mt-1">{phoneError}</p>}
                 </div>
+                 <div>
+                    <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">Email Address</label>
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={inputStyle} />
+                </div>
             </div>
-            <div>
+             <div>
+                <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">Address</label>
+                <textarea value={address} onChange={e => setAddress(e.target.value)} rows={2} className={inputStyle} />
+            </div>
+             <div>
                 <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">Referred By</label>
                  <select value={referredBy} onChange={e => setReferredBy(e.target.value)} className={inputStyle}>
                     <option value="">-- Select Source --</option>
@@ -102,9 +129,10 @@ export const ClientForm = ({ onSave, onCancel, client }: {
                 </div>
             </div>
              {hasSystemAccess && <p className="text-xs text-warm-gray-500">If checked, a "regular" user account will be created using the phone number as the username and password.</p>}
+            
             <div className="flex justify-end gap-3 pt-4">
                 <button type="button" onClick={onCancel} className={secondaryButton}>Cancel</button>
-                <button type="submit" className={primaryButton}><Save size={18}/> Save Client</button>
+                <button type="submit" className={primaryButton}><Save size={18}/> {saveButtonText || 'Save Client'}</button>
             </div>
         </form>
     );

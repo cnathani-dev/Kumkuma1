@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useItems, useServiceArticles, useAppCategories } from '../../App';
+import { useItems, useServiceArticles, useAppCategories } from '../../contexts/AppContexts';
 import { Item, ServiceArticle, PermissionLevel, AppCategory } from '../../types';
 import { AlertTriangle, ChevronDown, ChevronRight, Plus, Edit, Trash2, Save } from 'lucide-react';
 import Modal from '../../components/Modal';
