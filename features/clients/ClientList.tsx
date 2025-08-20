@@ -1,5 +1,3 @@
-
-
 import React, { useMemo, useState, useEffect } from 'react';
 import { Client, Event, EventState, FinancialHistoryEntry } from '../../types';
 import { useClients, useClientTasks, useEvents } from '../../contexts/AppContexts';
@@ -15,7 +13,7 @@ type FilterShape = {
     name: string;
     phone: string;
     status: 'active' | 'inactive' | 'all';
-    eventState: 'all' | 'lead' | 'confirmed' | 'lost';
+    eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled';
     tasks: 'all' | 'overdue';
     startDate: string;
     endDate: string;
@@ -62,6 +60,33 @@ const AddEventStep = ({ client, onSave, onSkip }: {
         </div>
     );
 };
+
+const FilterPillGroup = ({ label, options, value, onChange }: {
+    label: string;
+    options: { value: string; label: string }[];
+    value: string;
+    onChange: (value: string) => void;
+}) => (
+    <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-warm-gray-600 dark:text-warm-gray-400 shrink-0">{label}:</span>
+        <div className="flex items-center gap-2 flex-wrap">
+            {options.map(option => (
+                <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => onChange(option.value)}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${
+                        value === option.value
+                            ? 'bg-primary-500 text-white border-primary-500'
+                            : 'bg-white dark:bg-warm-gray-800 border-warm-gray-300 dark:border-warm-gray-600 text-warm-gray-700 dark:text-warm-gray-300 hover:bg-primary-50 dark:hover:bg-primary-900/40 hover:border-primary-300'
+                    }`}
+                >
+                    {option.label}
+                </button>
+            ))}
+        </div>
+    </div>
+);
 
 
 export const ClientList = ({ clients, events, onNavigate, filters, setFilters }: { 
@@ -234,6 +259,24 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
         const { name, value } = e.target;
         setFilters(prev => ({...prev, [name]: value}));
     };
+    
+    const handleButtonFilterChange = (name: keyof FilterShape, value: string) => {
+        setFilters(prev => ({ ...prev, [name]: value as any }));
+    };
+
+    const clientStatusOptions = [
+        { value: 'active', label: 'Active' },
+        { value: 'inactive', label: 'Inactive' },
+        { value: 'all', label: 'All' },
+    ];
+
+    const eventStatusOptions = [
+        { value: 'all', label: 'All' },
+        { value: 'lead', label: 'Lead' },
+        { value: 'confirmed', label: 'Confirmed' },
+        { value: 'lost', label: 'Lost' },
+        { value: 'cancelled', label: 'Cancelled' },
+    ];
 
     const renderActiveFilterPills = () => {
         const pills = [];
@@ -270,8 +313,7 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
                 )}
             </Modal>
 
-            <div className="flex justify-between items-center pb-4">
-                <h3 className="text-2xl font-display font-bold text-primary-600 dark:text-primary-400">Clients</h3>
+            <div className="flex justify-end items-center pb-4">
                 <button onClick={handleOpenWizard} className={`${primaryButton} text-nowrap`}>
                     <Plus size={16} /> <span className="hidden sm:inline">Add Client</span>
                 </button>
@@ -281,6 +323,20 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <input type="text" placeholder="Search by name..." name="name" value={filters.name} onChange={handleFilterChange} className={inputStyle} />
                     <input type="text" placeholder="Search by phone..." name="phone" value={filters.phone} onChange={handleFilterChange} className={inputStyle} />
+                </div>
+                 <div className="flex flex-col lg:flex-row gap-x-6 gap-y-4 items-start lg:items-center">
+                    <FilterPillGroup
+                        label="Client Status"
+                        options={clientStatusOptions}
+                        value={filters.status}
+                        onChange={(value) => handleButtonFilterChange('status', value)}
+                    />
+                    <FilterPillGroup
+                        label="Event Status"
+                        options={eventStatusOptions}
+                        value={filters.eventState}
+                        onChange={(value) => handleButtonFilterChange('eventState', value)}
+                    />
                 </div>
                 
                 <div>
@@ -292,23 +348,6 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
                 {showAdvancedFilters && (
                     <div className="pt-4 border-t border-warm-gray-200 dark:border-warm-gray-700/50 space-y-4 animate-fade-in">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium">Client Status</label>
-                                <select name="status" value={filters.status} onChange={handleFilterChange} className={inputStyle}>
-                                    <option value="active">Active</option>
-                                    <option value="inactive">Inactive</option>
-                                    <option value="all">All</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium">Event Status</label>
-                                <select name="eventState" value={filters.eventState} onChange={handleFilterChange} className={inputStyle}>
-                                    <option value="all">All</option>
-                                    <option value="lead">Lead</option>
-                                    <option value="confirmed">Confirmed</option>
-                                    <option value="lost">Lost</option>
-                                </select>
-                            </div>
                             <div>
                                 <label className="block text-sm font-medium">Tasks</label>
                                 <select name="tasks" value={filters.tasks} onChange={handleFilterChange} className={inputStyle}>

@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useEvents, useClients, useClientTasks, useUsers } from '../contexts/AppContexts';
-import { useUserPermissions, useAuth } from '../contexts/AuthContext';
-import { Event, Client, EventState, StateChangeHistoryEntry, ClientTask, User, FinancialHistoryEntry, Transaction, Charge } from '../types';
+import { useEvents, useClients, useClientTasks, useUsers } from '../../contexts/AppContexts';
+import { useUserPermissions, useAuth } from '../../contexts/AuthContext';
+import { Event, Client, EventState, StateChangeHistoryEntry, ClientTask, User, FinancialHistoryEntry, Transaction, Charge } from '../../types';
 import MenuCreator from '../features/menu-creator/MenuCreator';
-import { Plus, Edit, Trash2, Copy, Save, UserCheck, Check, Building, Phone, Mail, Map as MapIcon, Briefcase, ListChecks, Calendar, DollarSign, Clock, CheckCircle2 } from 'lucide-react';
+import { Plus, Edit, Trash2, Copy, Save, UserCheck, Check, Building, Phone, Mail, Map as MapIcon, Briefcase, ListChecks, Calendar, DollarSign, Clock, CheckCircle2, Link as LinkIcon } from 'lucide-react';
 import Modal from '../components/Modal';
 import { EventCard } from '../components/EventCard';
 import { primaryButton, dangerButton, secondaryButton, inputStyle, iconButton } from '../components/common/styles';
@@ -226,7 +226,9 @@ const EventsTab: React.FC<{
     onNavigate: (e: Event, state: PageState) => void;
     onStateChange: (event: Event, newState: EventState) => void;
     onRequestCancel: (event: Event) => void;
-}> = ({ clientEvents, canModify, canAccessFinances, onAddEvent, onEditEvent, onDeleteEvent, onDuplicateEvent, onNavigate, onStateChange, onRequestCancel }) => {
+    onRequestLost: (event: Event) => void;
+}> = ({ clientEvents, canModify, canAccessFinances, onAddEvent, onEditEvent, onDeleteEvent, onDuplicateEvent, onNavigate, onStateChange, onRequestCancel, onRequestLost }) => {
+    const { currentUser } = useAuth();
     return (
         <div>
             <div className="flex justify-end mb-4">
@@ -252,6 +254,8 @@ const EventsTab: React.FC<{
                             canAccessFinances={canAccessFinances}
                             onStateChange={onStateChange}
                             onRequestCancel={onRequestCancel}
+                            onRequestLost={onRequestLost}
+                            userRole={currentUser?.role}
                         />
                     ))}
                 </div>
@@ -434,20 +438,23 @@ const HistoryTab: React.FC<{ client: Client, events: Event[] }> = ({ client, eve
 export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, onBack, eventIdToOpen, eventToEditId }) => {
     const { clients, updateClient, deleteClient } = useClients();
     const { events, addEvent, updateEvent, deleteEvent, duplicateEvent } = useEvents();
-    const { currentUser } = useAuth();
+    const { currentUser, isGuest } = useAuth();
     const permissions = useUserPermissions();
     
     type ActiveTab = 'events' | 'tasks' | 'history';
+    const [activeTab, setActiveTab] = useState<ActiveTab>('events');
+    const tabsToShow: ActiveTab[] = (currentUser?.role === 'regular' || isGuest) ? ['events'] : ['events', 'tasks', 'history'];
 
     const [pageState, setPageState] = useState<PageState>('LIST');
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-    const [activeTab, setActiveTab] = useState<ActiveTab>('events');
 
     const [isEventModalOpen, setIsEventModalOpen] = useState(false);
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [isCopied, setIsCopied] = useState(false);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
+    const [isLostModalOpen, setIsLostModalOpen] = useState(false);
+    const [lostReason, setLostReason] = useState('');
 
     const canModify = permissions?.clientsAndEvents === 'modify';
     const canAccessFinances = useMemo(() => {
@@ -512,11 +519,28 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, 
         setSelectedEvent(eventToCancel); setIsCancelModalOpen(true);
     };
 
+    const handleRequestLost = (eventToMarkAsLost: Event) => {
+        if (!canModify) return;
+        setSelectedEvent(eventToMarkAsLost);
+        setIsLostModalOpen(true);
+    };
+
     const handleConfirmCancel = async () => {
         if (selectedEvent && cancelReason.trim() && canModify) {
             await handleStateChange(selectedEvent, 'cancelled', cancelReason);
             setIsCancelModalOpen(false); setCancelReason(''); setSelectedEvent(null);
         } else { alert('A reason is required to cancel the event.'); }
+    };
+
+    const handleConfirmLost = async () => {
+        if (selectedEvent && lostReason.trim() && canModify) {
+            await handleStateChange(selectedEvent, 'lost', lostReason);
+            setIsLostModalOpen(false);
+            setLostReason('');
+            setSelectedEvent(null);
+        } else {
+            alert('A reason is required to mark the event as lost.');
+        }
     };
 
     const handleSaveEvent = async (eventData: Omit<Event, 'id'> | Event) => {
@@ -569,9 +593,12 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, 
     const handleSaveServicePlan = (updatedEvent: Event) => { updateEvent(updatedEvent); setPageState('LIST'); setSelectedEvent(null); };
     const handleBackFromKitchenPlan = () => { setPageState('LIST'); setSelectedEvent(null); };
     
-    const copyClientLink = () => {
-        const url = `${window.location.origin}?clientId=${client.id}`;
-        navigator.clipboard.writeText(url).then(() => { setIsCopied(true); setTimeout(() => setIsCopied(false), 2000); });
+    const copyDirectLink = () => {
+        const link = `${window.location.origin}/?clientId=${client.id}`;
+        navigator.clipboard.writeText(link).then(() => {
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 2000);
+        });
     };
 
     const handleSaveClient = async (clientData: Client | Omit<Client, 'id'>) => {
@@ -595,112 +622,98 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, 
     
     const handleDeleteClient = () => {
         if (window.confirm(`Are you sure you want to delete ${client.name}? This will also delete all associated events and their user accounts. This action CANNOT be undone.`)) {
-            deleteClient(client.id); onBack();
+            deleteClient(client.id).then(() => onBack());
         }
     };
 
-    const renderPageContent = () => {
-        if (pageState !== 'LIST') {
-            switch (pageState) {
-                case 'MENU_CREATOR': return selectedEvent && client && <MenuCreator initialEvent={selectedEvent} client={client} onSave={handleSaveMenu} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} />;
-                case 'LIVE_COUNTER_SELECTOR': return selectedEvent && <LiveCounterSelectorPage event={selectedEvent} onSave={handleSaveLiveCounters} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} canModify={canModify} />;
-                case 'FINANCE': return selectedEvent && permissions && <FinanceManager event={selectedEvent} onSave={handleSaveFinance} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} permissionCore={permissions.financeCore} permissionCharges={permissions.financeCharges} permissionPayments={permissions.financePayments} permissionExpenses={permissions.financeExpenses} />;
-                case 'SERVICE_PLANNER': return selectedEvent && <ServicePlannerPage event={selectedEvent} onSave={handleSaveServicePlan} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} canModify={canModify}/>;
-                case 'KITCHEN_PLAN': return selectedEvent && <KitchenPlanPage event={selectedEvent} onCancel={handleBackFromKitchenPlan}/>
-            }
-        }
-        return (
-            <div>
-                 <div className="border-b border-warm-gray-200 dark:border-warm-gray-700 mb-6">
-                    <nav className="-mb-px flex space-x-8">
-                        {(['events', 'tasks', 'history'] as ActiveTab[]).map(tab => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors capitalize ${activeTab === tab
-                                    ? 'border-primary-500 text-primary-600'
-                                    : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700 hover:border-warm-gray-300'
-                                }`}
-                            >{tab}</button>
-                        ))}
-                    </nav>
-                </div>
-                <div>
-                    {activeTab === 'events' && <EventsTab clientEvents={clientEvents} canModify={canModify} canAccessFinances={canAccessFinances} onAddEvent={() => { setSelectedEvent(null); setIsEventModalOpen(true); }} onEditEvent={(e) => { setSelectedEvent(e); setIsEventModalOpen(true); }} onDeleteEvent={handleDeleteEvent} onDuplicateEvent={handleDuplicateEvent} onNavigate={(e, state) => { setSelectedEvent(e); setPageState(state); }} onStateChange={handleStateChange} onRequestCancel={handleRequestCancel} />}
-                    {activeTab === 'tasks' && <TasksTab client={client} />}
-                    {activeTab === 'history' && <HistoryTab client={client} events={clientEvents} />}
-                </div>
-            </div>
-        )
+    const handleNavigate = (event: Event, state: PageState) => {
+        setSelectedEvent(event);
+        setPageState(state);
     };
+
+    if (pageState !== 'LIST' && selectedEvent) {
+        switch (pageState) {
+            case 'MENU_CREATOR':
+                return <MenuCreator initialEvent={selectedEvent} client={client} onSave={handleSaveMenu} onCancel={() => setPageState('LIST')} />;
+            case 'LIVE_COUNTER_SELECTOR':
+                return <LiveCounterSelectorPage event={selectedEvent} onSave={handleSaveLiveCounters} onCancel={() => setPageState('LIST')} canModify={canModify} />;
+            case 'FINANCE':
+                if (!permissions) return null;
+                return <FinanceManager
+                    event={selectedEvent}
+                    onSave={handleSaveFinance}
+                    onCancel={() => setPageState('LIST')}
+                    permissionCore={permissions.financeCore}
+                    permissionCharges={permissions.financeCharges}
+                    permissionPayments={permissions.financePayments}
+                    permissionExpenses={permissions.financeExpenses}
+                />;
+            case 'SERVICE_PLANNER':
+                 return <ServicePlannerPage event={selectedEvent} onSave={handleSaveServicePlan} onCancel={() => setPageState('LIST')} canModify={canModify} />;
+            case 'KITCHEN_PLAN':
+                return <KitchenPlanPage event={selectedEvent} onCancel={handleBackFromKitchenPlan} />;
+        }
+    }
     
     return (
-        <div className="space-y-6">
-            {isEventModalOpen && (
-                <Modal isOpen={isEventModalOpen} onClose={() => { setIsEventModalOpen(false); setSelectedEvent(null); }} title={selectedEvent ? 'Edit Event' : 'Add Event'}>
-                    <EventForm
-                        onSave={handleSaveEvent}
-                        onCancel={() => { setIsEventModalOpen(false); setSelectedEvent(null); }}
-                        event={selectedEvent}
-                        clientId={client.id}
-                        isReadOnly={!canModify}
-                    />
-                </Modal>
-            )}
-            {isClientModalOpen && (
-                <Modal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} title="Edit Client">
-                    <ClientForm
-                        onSave={handleSaveClient}
-                        onCancel={() => setIsClientModalOpen(false)}
-                        client={client}
-                    />
-                </Modal>
-            )}
-            {isCancelModalOpen && (
-                 <Modal isOpen={isCancelModalOpen} onClose={() => setIsCancelModalOpen(false)} title="Cancel Event">
-                     <div>
-                         <p className="text-sm mb-4">Please provide a reason for cancelling the event: "{selectedEvent?.eventType}".</p>
-                         <textarea
-                             value={cancelReason}
-                             onChange={e => setCancelReason(e.target.value)}
-                             required
-                             className={inputStyle}
-                             rows={3}
-                             placeholder="e.g., Client postponed, duplicate entry, etc."
-                         />
-                         <div className="flex justify-end gap-3 pt-4">
-                             <button type="button" onClick={() => setIsCancelModalOpen(false)} className={secondaryButton}>Back</button>
-                             <button type="button" onClick={handleConfirmCancel} className={dangerButton} disabled={!cancelReason.trim()}>Confirm Cancellation</button>
-                         </div>
-                     </div>
-                 </Modal>
-             )}
+        <div>
+            {isEventModalOpen && <Modal isOpen={true} onClose={() => { setIsEventModalOpen(false); setSelectedEvent(null); }} title={selectedEvent ? "Edit Event" : "Add Event"}><EventForm onSave={handleSaveEvent} onCancel={() => { setIsEventModalOpen(false); setSelectedEvent(null); }} event={selectedEvent} clientId={client.id} isReadOnly={!canModify} /></Modal>}
+            {isClientModalOpen && <Modal isOpen={true} onClose={() => setIsClientModalOpen(false)} title="Edit Client"><ClientForm onSave={handleSaveClient} onCancel={() => setIsClientModalOpen(false)} client={client} /></Modal>}
+            {isCancelModalOpen && <Modal isOpen={isCancelModalOpen} onClose={() => setIsCancelModalOpen(false)} title="Cancel Event"><p>Please provide a reason for cancelling.</p><textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} required className={inputStyle} rows={3}/><div className="flex justify-end gap-3 pt-4"><button onClick={() => setIsCancelModalOpen(false)} className={secondaryButton}>Back</button><button onClick={handleConfirmCancel} disabled={!cancelReason.trim()} className={dangerButton}>Confirm</button></div></Modal>}
+             {isLostModalOpen && <Modal isOpen={isLostModalOpen} onClose={() => setIsLostModalOpen(false)} title="Mark Event as Lost"><p>Please provide a reason for marking this lead as lost.</p><textarea value={lostReason} onChange={e => setLostReason(e.target.value)} required className={inputStyle} rows={3}/><div className="flex justify-end gap-3 pt-4"><button onClick={() => setIsLostModalOpen(false)} className={secondaryButton}>Back</button><button onClick={handleConfirmLost} disabled={!lostReason.trim()} className={dangerButton}>Confirm</button></div></Modal>}
 
-            <div className="p-6 bg-white dark:bg-warm-gray-800 rounded-lg shadow-md">
-                <div className="flex flex-col md:flex-row justify-between md:items-start gap-4">
+            <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md mb-6">
+                 <div className="flex justify-between items-start">
                     <div>
-                        <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">{client.name}</h2>
-                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-warm-gray-500 mt-2">
-                             {client.company && <span className="flex items-center gap-1.5"><Briefcase size={14}/> {client.company}</span>}
-                             <span className="flex items-center gap-1.5"><Phone size={14}/> {client.phone}</span>
-                             {client.email && <span className="flex items-center gap-1.5"><Mail size={14}/> {client.email}</span>}
-                             {client.address && <span className="flex items-center gap-1.5"><MapIcon size={14}/> {client.address}</span>}
-                         </div>
+                        <h2 className="text-3xl font-display font-bold text-primary-600 dark:text-primary-400">{client.name}</h2>
+                        <div className="mt-2 text-sm text-warm-gray-500 space-y-1">
+                            <p className="flex items-center gap-2"><Phone size={14}/> {client.phone}</p>
+                            <p className="flex items-center gap-2"><Mail size={14}/> {client.email || 'N/A'}</p>
+                            <p className="flex items-center gap-2"><Briefcase size={14}/> {client.company || 'N/A'}</p>
+                        </div>
                     </div>
-                     <div className="flex items-center gap-2 flex-shrink-0">
-                         {client.hasSystemAccess && (
-                             <button onClick={copyClientLink} className={secondaryButton}>
-                                 {isCopied ? <Check size={16}/> : <UserCheck size={16}/>}
-                                 {isCopied ? 'Link Copied!' : 'Copy Client Link'}
-                             </button>
-                         )}
-                         {canModify && <button onClick={() => setIsClientModalOpen(true)} className={secondaryButton}><Edit size={16}/> Edit Client</button>}
-                         {currentUser?.role === 'admin' && <button onClick={handleDeleteClient} className={dangerButton}><Trash2 size={16}/> Delete</button>}
+                    {!isGuest && (
+                    <div className="flex items-center gap-2">
+                        <button onClick={onBack} className={secondaryButton}>Back to List</button>
+                        {canModify &&
+                            <>
+                                <button onClick={copyDirectLink} className={secondaryButton}>
+                                    {isCopied ? <><CheckCircle2 size={16}/> Copied!</> : <><LinkIcon size={16}/> Copy Direct Link</>}
+                                </button>
+                                <button onClick={() => setIsClientModalOpen(true)} className={primaryButton}><Edit size={16}/> Edit Client</button>
+                                {currentUser?.role === 'admin' && <button onClick={handleDeleteClient} className={dangerButton}><Trash2 size={16}/> Delete Client</button>}
+                            </>
+                        }
                     </div>
+                    )}
                 </div>
             </div>
-
-            {renderPageContent()}
+            
+             <div className="border-b border-warm-gray-200 dark:border-warm-gray-700 mb-6">
+                <nav className="-mb-px flex space-x-8">
+                    {tabsToShow.map(tab => (
+                        <button key={tab} onClick={() => setActiveTab(tab)} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>
+                           {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        </button>
+                    ))}
+                </nav>
+            </div>
+            
+            {activeTab === 'events' && <EventsTab 
+                                            clientEvents={clientEvents} 
+                                            canModify={canModify} 
+                                            canAccessFinances={canAccessFinances}
+                                            onAddEvent={() => {setSelectedEvent(null); setIsEventModalOpen(true);}}
+                                            onEditEvent={(e) => {setSelectedEvent(e); setIsEventModalOpen(true);}}
+                                            onDeleteEvent={handleDeleteEvent}
+                                            onDuplicateEvent={handleDuplicateEvent}
+                                            onNavigate={handleNavigate}
+                                            onStateChange={(e, s) => handleStateChange(e,s)}
+                                            onRequestCancel={handleRequestCancel}
+                                            onRequestLost={handleRequestLost}
+                                        />}
+            {activeTab === 'tasks' && <TasksTab client={client} />}
+            {activeTab === 'history' && <HistoryTab client={client} events={clientEvents} />}
         </div>
     );
 };

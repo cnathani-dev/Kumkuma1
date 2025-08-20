@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Recipe, RecipeRawMaterial, RawMaterial } from '../types';
+import { Recipe, RecipeRawMaterial, RawMaterial, RecipeConversion } from '../types';
 import { useRawMaterials, useUnits } from '../contexts/AppContexts';
 import { primaryButton, secondaryButton, inputStyle } from '../components/common/styles';
 import { Save, ArrowLeft, Plus, Trash2, Scale } from 'lucide-react';
@@ -62,6 +62,7 @@ export const RecipeEditorPage = ({ recipe: initialRecipe, onSave, onBack }: {
     onBack: () => void
 }) => {
     const { rawMaterials: allRawMaterials } = useRawMaterials();
+    const { settings: units } = useUnits();
     
     const [tempAddedRawMaterials, setTempAddedRawMaterials] = useState<RawMaterial[]>([]);
 
@@ -73,16 +74,105 @@ export const RecipeEditorPage = ({ recipe: initialRecipe, onSave, onBack }: {
 
     const rawMaterialsMap = useMemo(() => new Map(availableRawMaterials.map(i => [i.id, i])), [availableRawMaterials]);
 
-    const [name, setName] = useState(initialRecipe?.name || '');
-    const [instructions, setInstructions] = useState(initialRecipe?.instructions || '');
-    const [outputKg, setOutputKg] = useState(initialRecipe?.outputKg || 0);
-    const [outputLitres, setOutputLitres] = useState(initialRecipe?.outputLitres || 0);
-    const [recipeRawMaterials, setRecipeRawMaterials] = useState<(RecipeRawMaterial & { tempId: string })[]>(
-        (initialRecipe?.rawMaterials || []).map(ing => ({ ...ing, tempId: uuidv4() }))
-    );
+    // Form state
+    const [name, setName] = useState('');
+    const [instructions, setInstructions] = useState('');
+    const [yieldQuantity, setYieldQuantity] = useState(0);
+    const [yieldUnit, setYieldUnit] = useState('');
+    const [conversions, setConversions] = useState<(RecipeConversion & { tempId: string })[]>([]);
+    const [recipeRawMaterials, setRecipeRawMaterials] = useState<(RecipeRawMaterial & { tempId: string })[]>([]);
+    const [defaultOrderingUnit, setDefaultOrderingUnit] = useState('');
 
     const [isNewRawMaterialModalOpen, setIsNewRawMaterialModalOpen] = useState(false);
     const [newRawMaterialTargetIndex, setNewRawMaterialTargetIndex] = useState<number | null>(null);
+
+    // State for dirty checking
+    const [initialState, setInitialState] = useState<string | null>(null);
+    
+    useEffect(() => {
+        const recipeToLoad = initialRecipe as any;
+        let loadedState: Omit<Recipe, 'id' | 'rawMaterials' | 'conversions'> & {
+            rawMaterials: (RecipeRawMaterial & { tempId: string })[];
+            conversions: (RecipeConversion & { tempId: string })[];
+        };
+
+        if (!recipeToLoad || !initialRecipe?.id) {
+            const unitName = units.length > 0 ? units[0].name : '';
+            loadedState = {
+                name: '', instructions: '', yieldQuantity: 0, yieldUnit: unitName,
+                conversions: [], rawMaterials: [], defaultOrderingUnit: unitName
+            };
+        } else if (recipeToLoad.yieldQuantity !== undefined && recipeToLoad.yieldUnit !== undefined) {
+            // New format
+            loadedState = {
+                name: recipeToLoad.name || '',
+                instructions: recipeToLoad.instructions || '',
+                yieldQuantity: recipeToLoad.yieldQuantity || 0,
+                yieldUnit: recipeToLoad.yieldUnit || '',
+                conversions: (recipeToLoad.conversions || []).map((c: RecipeConversion) => ({ ...c, tempId: uuidv4() })),
+                rawMaterials: (recipeToLoad.rawMaterials || []).map((ing: RecipeRawMaterial) => ({ ...ing, tempId: uuidv4() })),
+                defaultOrderingUnit: recipeToLoad.defaultOrderingUnit || recipeToLoad.yieldUnit || ''
+            };
+        } else {
+            // Old format, migrate
+            let qty = 0;
+            let unit = '';
+            if (recipeToLoad.outputKg > 0) { qty = recipeToLoad.outputKg; unit = 'kg'; }
+            else if (recipeToLoad.outputLitres > 0) { qty = recipeToLoad.outputLitres; unit = 'litres'; }
+            else if (recipeToLoad.outputPieces > 0) { qty = recipeToLoad.outputPieces; unit = 'pieces'; }
+            
+            loadedState = {
+                name: recipeToLoad.name || '',
+                instructions: recipeToLoad.instructions || '',
+                yieldQuantity: qty,
+                yieldUnit: unit,
+                conversions: [],
+                rawMaterials: (recipeToLoad.rawMaterials || []).map((ing: RecipeRawMaterial) => ({ ...ing, tempId: uuidv4() })),
+                defaultOrderingUnit: unit
+            };
+        }
+
+        setName(loadedState.name);
+        setInstructions(loadedState.instructions);
+        setYieldQuantity(loadedState.yieldQuantity);
+        setYieldUnit(loadedState.yieldUnit);
+        setDefaultOrderingUnit(loadedState.defaultOrderingUnit);
+        setConversions(loadedState.conversions);
+        setRecipeRawMaterials(loadedState.rawMaterials);
+        
+        // Strip tempIds for stable comparison string
+        setInitialState(JSON.stringify({
+            name: loadedState.name,
+            instructions: loadedState.instructions,
+            yieldQuantity: loadedState.yieldQuantity,
+            yieldUnit: loadedState.yieldUnit,
+            conversions: loadedState.conversions.map(({ tempId, ...rest }) => rest),
+            rawMaterials: loadedState.rawMaterials.map(({ tempId, ...rest }) => rest),
+            defaultOrderingUnit: loadedState.defaultOrderingUnit
+        }));
+    }, [initialRecipe, units]);
+
+    const isDirty = useMemo(() => {
+        if (initialState === null) return false;
+        const currentState = JSON.stringify({
+            name, instructions, yieldQuantity, yieldUnit,
+            conversions: conversions.map(({ tempId, ...rest }) => rest),
+            rawMaterials: recipeRawMaterials.map(({ tempId, ...rest }) => rest),
+            defaultOrderingUnit
+        });
+        return currentState !== initialState;
+    }, [name, instructions, yieldQuantity, yieldUnit, conversions, recipeRawMaterials, defaultOrderingUnit, initialState]);
+
+    const handleBack = () => {
+        if (isDirty) {
+            if (window.confirm("You have unsaved changes. Are you sure you want to leave?")) {
+                onBack();
+            }
+        } else {
+            onBack();
+        }
+    };
+
 
     const handleAddRawMaterialRow = () => {
         setRecipeRawMaterials([...recipeRawMaterials, { rawMaterialId: '', quantity: 0, tempId: uuidv4() }]);
@@ -120,25 +210,54 @@ export const RecipeEditorPage = ({ recipe: initialRecipe, onSave, onBack }: {
         setNewRawMaterialTargetIndex(null);
     };
 
+    const handleAddConversion = () => {
+        setConversions([...conversions, { unit: '', factor: 1, tempId: uuidv4() }]);
+    };
+    
+    const handleRemoveConversion = (tempId: string) => {
+        setConversions(conversions.filter(c => c.tempId !== tempId));
+    };
+    
+    const handleConversionChange = (tempId: string, field: 'unit' | 'factor', value: string) => {
+        setConversions(conversions.map(c => 
+            c.tempId === tempId
+                ? { ...c, [field]: field === 'factor' ? Number(value) : value }
+                : c
+        ));
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
-        if (outputKg <= 0 && outputLitres <= 0) {
-            alert('Recipe yield is mandatory. Please provide a value greater than 0 for either Kgs or Litres.');
+        if (yieldQuantity <= 0 || !yieldUnit) {
+            alert('Recipe yield is mandatory. Please provide a quantity and select a unit.');
             return;
         }
 
         const finalRawMaterials = recipeRawMaterials
             .filter(ing => ing.rawMaterialId && ing.quantity > 0)
             .map(({ tempId, ...rest }) => rest);
+        
+        const finalConversions = conversions
+            .filter(c => c.unit && c.factor > 0)
+            .map(({ tempId, ...rest }) => rest);
             
-        const recipeData = { name, instructions, outputKg, outputLitres, rawMaterials: finalRawMaterials };
-        if (initialRecipe) {
-            onSave({ ...initialRecipe, ...recipeData });
+        const recipeData = { name, instructions, yieldQuantity, yieldUnit, rawMaterials: finalRawMaterials, conversions: finalConversions, defaultOrderingUnit };
+        if (initialRecipe?.id) {
+            onSave({ id: initialRecipe.id, ...recipeData });
         } else {
             onSave(recipeData);
         }
     };
+    
+    const orderingUnitOptions = useMemo(() => {
+        const allUnits = new Set<string>();
+        if(yieldUnit) allUnits.add(yieldUnit);
+        conversions.forEach(c => {
+            if (c.unit) allUnits.add(c.unit);
+        });
+        return Array.from(allUnits).sort((a,b) => a.localeCompare(b));
+    }, [yieldUnit, conversions]);
 
     return (
         <div>
@@ -149,7 +268,7 @@ export const RecipeEditorPage = ({ recipe: initialRecipe, onSave, onBack }: {
                         {initialRecipe ? "Edit Recipe" : "Create New Recipe"}
                     </h2>
                     <div className="flex items-center gap-2">
-                        <button type="button" onClick={onBack} className={secondaryButton}>
+                        <button type="button" onClick={handleBack} className={secondaryButton}>
                             <ArrowLeft size={16}/> Back
                         </button>
                         <button type="submit" className={primaryButton}>
@@ -173,14 +292,51 @@ export const RecipeEditorPage = ({ recipe: initialRecipe, onSave, onBack }: {
                             <div>
                                 <label className="block text-sm font-medium">Base Recipe Yield</label>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="flex items-center gap-2">
-                                        <input type="number" placeholder="0.00" value={outputKg} onChange={e => setOutputKg(Number(e.target.value))} min="0" step="0.01" className={`${inputStyle} text-right flex-1`} />
-                                        <span className="font-medium text-warm-gray-500">Kgs</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <input type="number" placeholder="0.00" value={outputLitres} onChange={e => setOutputLitres(Number(e.target.value))} min="0" step="0.01" className={`${inputStyle} text-right flex-1`} />
-                                        <span className="font-medium text-warm-gray-500">Litres</span>
-                                    </div>
+                                    <input type="number" placeholder="e.g., 5" value={yieldQuantity || ''} onChange={e => setYieldQuantity(Number(e.target.value))} min="0" step="any" className={inputStyle} />
+                                    <select value={yieldUnit} onChange={e => setYieldUnit(e.target.value)} required className={inputStyle}>
+                                        <option value="">-- Select Unit --</option>
+                                        {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                             <div className="mt-4 pt-4 border-t border-warm-gray-200 dark:border-warm-gray-700">
+                                <h3 className="font-bold text-lg">Unit Conversions</h3>
+                                <p className="text-sm text-warm-gray-500 mb-2">Define conversions from other units to your base yield unit.</p>
+                                <div className="space-y-2">
+                                    {conversions.map((conv) => (
+                                        <div key={conv.tempId} className="flex items-center gap-2 text-sm p-2 bg-warm-gray-50 dark:bg-warm-gray-900/40 rounded-md">
+                                            <span className="font-mono whitespace-nowrap">1</span>
+                                            <select value={conv.unit} onChange={e => handleConversionChange(conv.tempId, 'unit', e.target.value)} className={inputStyle + " flex-grow py-1"}>
+                                                <option value="">-- Select Unit --</option>
+                                                {units
+                                                    .filter(u => {
+                                                        if (u.name === yieldUnit) return false; // Can't convert to itself
+                                                        if (u.name === conv.unit) return true; // Always show the selected unit
+                                                        const isUsedElsewhere = conversions.some(c => c.tempId !== conv.tempId && c.unit === u.name);
+                                                        return !isUsedElsewhere;
+                                                    })
+                                                    .map(u => <option key={u.id} value={u.name}>{u.name}</option>)
+                                                }
+                                            </select>
+                                            <span className="font-mono">=</span>
+                                            <input type="number" value={conv.factor} onChange={e => handleConversionChange(conv.tempId, 'factor', e.target.value)} min="0" step="any" className={inputStyle + " w-24 py-1"} />
+                                            <span className="font-mono">{yieldUnit || '?'}</span>
+                                            <button type="button" onClick={() => handleRemoveConversion(conv.tempId)} className="text-accent-500 p-1 rounded-full hover:bg-accent-100"><Trash2 size={16}/></button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button type="button" onClick={handleAddConversion} disabled={!yieldUnit} className={`${secondaryButton} mt-2`}>
+                                    <Plus size={16}/> Add Conversion
+                                </button>
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-warm-gray-200 dark:border-warm-gray-700">
+                                <h3 className="font-bold text-lg">Ordering</h3>
+                                <p className="text-sm text-warm-gray-500 mb-2">Select the default unit to be used when adding this recipe to a production order.</p>
+                                <div>
+                                    <label className="block text-sm font-medium">Default Ordering Unit</label>
+                                    <select value={defaultOrderingUnit} onChange={e => setDefaultOrderingUnit(e.target.value)} required className={inputStyle}>
+                                        {orderingUnitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                                    </select>
                                 </div>
                             </div>
                         </div>

@@ -6,7 +6,9 @@ import {
     exportAllCategories, exportAllItems, exportAllLiveCounters, exportAllCatalogs, exportAllClients, exportAllEvents,
     downloadRecipeSample, exportAllRecipes,
     exportAllMuhurthamDates,
-    downloadMuhurthamDateSample
+    downloadMuhurthamDateSample,
+    exportAllRawMaterials,
+    downloadRawMaterialSample
 } from '../../lib/export';
 import { primaryButton, secondaryButton, inputStyle, dangerButton } from '../../components/common/styles';
 import { Download, Upload, FileQuestion, Trash2, Plus, Loader2, Database } from 'lucide-react';
@@ -34,8 +36,8 @@ export const DataManagementWizard = () => {
     const { catalogs, addMultipleCatalogs, deleteAllCatalogs } = useCatalogs();
     const { clients, deleteAllClients, addSampleData, deleteSampleData } = useClients();
     const { events, deleteAllEvents, importClientsAndEvents } = useEvents();
-    const { recipes, addMultipleRecipes } = useRecipes();
-    const { rawMaterials } = useRawMaterials();
+    const { recipes, addMultipleRecipes, deleteAllRecipes } = useRecipes();
+    const { rawMaterials, addMultipleRawMaterials, deleteAllRawMaterials } = useRawMaterials();
     const { muhurthamDates, importMuhurthamDates, deleteAllMuhurthamDates } = useMuhurthamDates();
     const [isMigrating, setIsMigrating] = useState(false);
     const [isFixingTxDates, setIsFixingTxDates] = useState(false);
@@ -62,7 +64,18 @@ export const DataManagementWizard = () => {
                 }
 
                 const result = await importFunction(json);
-                alert(`Successfully imported ${typeof result === 'number' ? result : json.length} records.`);
+
+                if (importFunction === addMultipleRecipes) {
+                    const recipeResult = result as { successCount: number; failures: { name: string; reason: string }[] };
+                    let message = `Import complete.\n\nSuccessfully imported/updated: ${recipeResult.successCount} recipes.`;
+                    if (recipeResult.failures.length > 0) {
+                        message += `\n\nFailed to import: ${recipeResult.failures.length} recipes.\n\nReasons:\n`;
+                        message += recipeResult.failures.map(f => `- ${f.name}: ${f.reason}`).join('\n');
+                    }
+                    alert(message);
+                } else {
+                    alert(`Successfully imported ${typeof result === 'number' ? result : json.length} records.`);
+                }
             } catch (error) {
                 console.error("Import error:", error);
                 alert(`Import failed: ${error}`);
@@ -342,6 +355,14 @@ export const DataManagementWizard = () => {
                 onExport={() => exportAllRecipes(recipes, rawMaterials)}
                 onImport={(file) => handleFileUpload(file, addMultipleRecipes, ['recipe', 'raw material', 'raw material qty', 'raw material unit'])}
                 onSample={downloadRecipeSample}
+                onDeleteAll={deleteAllRecipes}
+            />
+            <DataCard
+                title="Raw Materials"
+                onExport={() => exportAllRawMaterials(rawMaterials)}
+                onImport={(file) => handleFileUpload(file, addMultipleRawMaterials, ['name', 'unit'])}
+                onSample={downloadRawMaterialSample}
+                onDeleteAll={deleteAllRawMaterials}
             />
             <DataCard
                 title="Muhurtham Dates"

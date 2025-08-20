@@ -188,16 +188,17 @@ const FinancialSettings = ({ type, contextHook, canModify }: { type: string, con
         if (!mergeTarget || !mergeSettings) return;
         const sourceIds = Array.from(selectedIds).filter(id => id !== mergeTarget);
         if (sourceIds.length === 0) {
-            alert("Cannot merge an item into itself.");
+            alert("Cannot merge an item into itself. Please select a different destination unit.");
             return;
         }
-        
-        try {
-            await mergeSettings(sourceIds, mergeTarget);
-            setSelectedIds(new Set());
-            setIsMergeModalOpen(false);
-        } catch(e) {
-            alert(`Error merging: ${e}`);
+        if (window.confirm(`Are you sure? This will update all items using the merged units and cannot be undone.`)) {
+            try {
+                await mergeSettings(sourceIds, mergeTarget);
+                setSelectedIds(new Set());
+                setIsMergeModalOpen(false);
+            } catch(e) {
+                alert(`Error merging: ${e}`);
+            }
         }
     };
 
@@ -208,7 +209,7 @@ const FinancialSettings = ({ type, contextHook, canModify }: { type: string, con
             </Modal>}
             {isMergeModalOpen && <Modal isOpen={true} onClose={() => setIsMergeModalOpen(false)} title={`Merge ${type}`}>
                 <div className="space-y-4">
-                    <p>Select which {type} to keep. Others will be merged into it.</p>
+                    <p>You have selected <strong>{selectedIds.size}</strong> {type}s to merge. Select which one to keep as the primary. All others will be deleted, and their references updated.</p>
                     <select value={mergeTarget} onChange={e => setMergeTarget(e.target.value)} className={inputStyle}>
                         <option value="">-- Select Destination --</option>
                         {settings.filter((s: FinancialSetting) => selectedIds.has(s.id)).map((s:FinancialSetting) => (

@@ -8,9 +8,13 @@ import { logAuditEvent } from '../lib/audit';
 
 interface AuthContextType {
     currentUser: User | null;
+    isGuest: boolean;
+    isInitializing: boolean;
     login: (user: string, pass:string) => Promise<{success: boolean, message: string}>;
     logout: () => void;
     changePassword: (oldPass: string, newPass: string) => Promise<{success: boolean, message: string}>;
+    startGuestSession: (clientId: string) => void;
+    endGuestSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -27,11 +31,13 @@ export const useAuth = () => {
 export const useUserPermissions = () => {
     const { currentUser } = useAuth();
     const [roles, setRoles] = useState<Role[]>([]);
+    const [rolesLoaded, setRolesLoaded] = useState(false);
 
     useEffect(() => {
         const unsub = onSnapshot(collection(db, "roles"), (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Role[];
             setRoles(data);
+            setRolesLoaded(true);
         });
         return () => unsub();
     }, []);
@@ -55,6 +61,10 @@ export const useUserPermissions = () => {
         }
 
         if (currentUser.role === 'staff') {
+            if (!rolesLoaded) {
+                return null; // Indicate that permissions are still loading
+            }
+            
             if (currentUser.roleId) {
                 const role = roles.find(r => r.id === currentUser.roleId);
                 if (role) {
@@ -79,12 +89,34 @@ export const useUserPermissions = () => {
 
         // Regular and kitchen users have no admin panel permissions, so return null.
         return null;
-    }, [currentUser, roles]);
+    }, [currentUser, roles, rolesLoaded]);
 };
 
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [currentUser, setCurrentUser] = useLocalStorage<User | null>('currentUser', null);
+    const [isGuest, setIsGuest] = useLocalStorage<boolean>('isGuest', false);
+    const [isInitializing, setIsInitializing] = useState(true);
+
+    const endGuestSession = () => {
+        setIsGuest(false);
+        if (currentUser?.id.startsWith('guest-')) {
+            setCurrentUser(null);
+        }
+    };
+
+    const startGuestSession = (clientId: string) => {
+        endGuestSession(); // Clear any existing session first
+        setIsGuest(true);
+        // Create a temporary user object for the guest session
+        setCurrentUser({
+            id: `guest-${clientId}`,
+            role: 'regular',
+            status: 'active',
+            username: 'Client Guest',
+            assignedClientId: clientId,
+        });
+    };
 
     useEffect(() => {
         const seedInitialUsers = async () => {
@@ -129,7 +161,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         seedInitialUsers();
     }, []);
 
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const clientIdFromUrl = urlParams.get('clientId');
+        if (clientIdFromUrl) {
+            // This runs on first load. We check localStorage directly to avoid state lag from `useLocalStorage` hook.
+            const storedUser = window.localStorage.getItem('currentUser');
+            if (!storedUser) {
+                startGuestSession(clientIdFromUrl);
+            }
+            // Clear the URL to avoid re-triggering this on refresh if user is logged in
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        setIsInitializing(false);
+    }, []); // Run only once
+
     const login = async (username: string, pass: string): Promise<{success: boolean, message: string}> => {
+        endGuestSession(); // Ensure any guest session is terminated on login attempt
         try {
             const usersRef = collection(db, "users");
             const q = query(usersRef, where("username", "==", username));
@@ -201,6 +249,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 clientId: currentUser.assignedClientId
             });
         }
+        endGuestSession();
         setCurrentUser(null);
         // Also clear from local storage
         window.localStorage.removeItem('currentUser');
@@ -230,9 +279,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const value = {
         currentUser,
+        isGuest,
+        isInitializing,
         login,
         logout,
-        changePassword
+        changePassword,
+        startGuestSession,
+        endGuestSession,
     };
 
     return (

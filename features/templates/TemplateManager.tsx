@@ -1,8 +1,3 @@
-
-
-
-
-
 import React, { useState, useMemo } from 'react';
 import { MenuTemplate, Catalog, AppCategory } from '../../types';
 import { useTemplates, useCatalogs, useAppCategories, useItems } from '../../contexts/AppContexts';
@@ -56,8 +51,7 @@ export const TemplateManager: React.FC<TemplateManagerProps> = ({ canModify, onA
 
     return (
          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-display font-bold text-primary-600 dark:text-primary-400">Templates</h3>
+            <div className="flex justify-end items-center">
                 {canModify &&
                     <div className="flex items-center gap-2">
                         <button onClick={onAddClick} className={primaryButton}><Plus size={16}/> Add Template</button>
@@ -116,17 +110,19 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCanc
     const [catalogId, setCatalogId] = useState(template.catalogId || '');
     const [group, setGroup] = useState(template.group || '');
     const [rules, setRules] = useState<Record<string, number>>(template.rules || {});
-    const [showVegOnly, setShowVegOnly] = useState(false);
+    const [type, setType] = useState<'veg' | 'non-veg'>(('type' in template ? template.type : 'non-veg') || 'non-veg');
+    const [muttonRules, setMuttonRules] = useState(template.muttonRules || 0);
+    const [allowLiveCounters, setAllowLiveCounters] = useState(template.allowLiveCounters ?? true);
 
     const templateGroups = useMemo(() => Array.from(new Set(templates.map(t => t.group).filter(Boolean))), [templates]);
     
     const rootCategories = useMemo(() => {
         return categories.filter(c => {
             const isRoot = c.parentId === null;
-            const isVeg = showVegOnly ? c.type === 'veg' : true;
-            return isRoot && isVeg;
+            const typeMatch = type === 'veg' ? c.type === 'veg' : true;
+            return isRoot && typeMatch;
         }).sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
-    }, [categories, showVegOnly]);
+    }, [categories, type]);
     
     const handleRuleChange = (categoryId: string, value: string) => {
         if (isReadOnly) return;
@@ -149,12 +145,20 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCanc
             alert('Please select a catalog.');
             return;
         }
-        const templateData = { name, catalogId, group, rules };
+        const templateData = { 
+            name, 
+            catalogId, 
+            group, 
+            rules, 
+            type,
+            muttonRules: muttonRules > 0 ? muttonRules : undefined,
+            allowLiveCounters,
+        };
         try {
             if('id' in template) {
                 await updateTemplate({ ...template, ...templateData } as MenuTemplate);
             } else {
-                await addTemplate(templateData);
+                await addTemplate(templateData as Omit<MenuTemplate, 'id'>);
             }
             onCancel();
         } catch(e) {
@@ -184,24 +188,18 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCanc
                     <option value="" disabled>Select a Catalog</option>
                     {catalogs.slice().sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+                <div className="md:col-span-3">
+                    <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300 mb-1">Template Type</label>
+                    <div className="flex gap-1 bg-warm-gray-100 dark:bg-warm-gray-700 p-1 rounded-md">
+                        <button type="button" onClick={() => !isReadOnly && setType('non-veg')} className={`flex-1 p-2 rounded text-sm font-semibold transition-colors ${type === 'non-veg' ? 'bg-white dark:bg-warm-gray-800 shadow' : 'hover:bg-white/50'}`}>Non-Veg (Shows all categories)</button>
+                        <button type="button" onClick={() => !isReadOnly && setType('veg')} className={`flex-1 p-2 rounded text-sm font-semibold transition-colors ${type === 'veg' ? 'bg-white dark:bg-warm-gray-800 shadow' : 'hover:bg-white/50'}`}>Veg (Shows only veg categories)</button>
+                    </div>
+                </div>
             </div>
             
             <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md">
                  <div className="flex justify-between items-center mb-4">
                     <h4 className="text-xl font-bold">Category Rules</h4>
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="checkbox"
-                            id="vegOnlyFilter"
-                            checked={showVegOnly}
-                            onChange={(e) => setShowVegOnly(e.target.checked)}
-                            disabled={isReadOnly}
-                            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        <label htmlFor="vegOnlyFilter" className="text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">
-                            Show Veg Categories Only
-                        </label>
-                    </div>
                 </div>
                 <p className="text-sm text-warm-gray-500 mb-4">For each root category, specify the maximum number of items a user can select. Leave blank or 0 to exclude the category.</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -219,6 +217,37 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCanc
                             />
                         </div>
                     ))}
+                </div>
+                 <div className="mt-6 pt-6 border-t border-warm-gray-200 dark:border-warm-gray-700">
+                    <h4 className="text-xl font-bold mb-2">Additional Rules</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-medium text-warm-gray-700 dark:text-warm-gray-300">Max Mutton Items</label>
+                            <input
+                                type="number"
+                                value={muttonRules}
+                                onChange={e => setMuttonRules(Number(e.target.value))}
+                                placeholder="e.g., 2"
+                                min="0"
+                                readOnly={isReadOnly}
+                                className={inputStyle}
+                            />
+                            <p className="text-xs text-warm-gray-500 mt-1">Total mutton items allowed across all categories.</p>
+                        </div>
+                         <div className="flex items-center pt-6">
+                            <input
+                                id="allowLiveCounters"
+                                type="checkbox"
+                                checked={allowLiveCounters}
+                                onChange={e => setAllowLiveCounters(e.target.checked)}
+                                disabled={isReadOnly}
+                                className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                            />
+                            <label htmlFor="allowLiveCounters" className="ml-2 block text-sm text-warm-gray-900 dark:text-warm-gray-200">
+                                Allow Live Counters
+                            </label>
+                        </div>
+                    </div>
                 </div>
             </div>
         </form>

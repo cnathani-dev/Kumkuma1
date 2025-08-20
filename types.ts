@@ -83,10 +83,15 @@ export interface AppCategory {
   type?: 'veg' | 'non-veg' | null; // Only for parent categories
   displayRank?: number;
 
-  // New fields for cooking estimates
+  // Cooking estimates for VEG menus
   baseQuantityPerPax?: number;
   quantityUnit?: string; // e.g., 'grams', 'pieces', 'ml'
   additionalItemPercentage?: number; // e.g., 20 for 20%
+
+  // Cooking estimates for NON-VEG menus (only applicable to veg categories)
+  baseQuantityPerPax_nonVeg?: number;
+  quantityUnit_nonVeg?: string;
+  additionalItemPercentage_nonVeg?: number;
 }
 
 export interface Item {
@@ -114,8 +119,11 @@ export interface MenuTemplate {
   name: string;
   catalogId: string;
   group?: string;
+  type?: 'veg' | 'non-veg';
   // key is category ID, value is max number of items
   rules: Record<string, number>;
+  muttonRules?: number;
+  allowLiveCounters?: boolean;
 }
 
 export interface LiveCounter {
@@ -247,13 +255,20 @@ export interface RecipeRawMaterial {
   quantity: number;
 }
 
+export interface RecipeConversion {
+  unit: string;
+  factor: number; // e.g. 1 [unit] = factor * [base yield unit]
+}
+
 export interface Recipe {
   id: string;
   name: string;
   instructions: string;
   rawMaterials: RecipeRawMaterial[];
-  outputKg: number;
-  outputLitres: number;
+  yieldQuantity: number;
+  yieldUnit: string;
+  conversions?: RecipeConversion[];
+  defaultOrderingUnit?: string; // The unit for order entry. Can be the base yieldUnit or a unit from conversions.
 }
 
 export interface PlatterRecipe {
@@ -279,6 +294,7 @@ export interface OrderTemplate {
   id: string;
   name: string;
   recipeIds: string[];
+  platterIds?: string[];
 }
 
 export interface Activity {
@@ -327,14 +343,17 @@ export interface RawMaterialsContextType {
     updateRawMaterial: (rawMaterial: RawMaterial) => Promise<void>;
     deleteRawMaterial: (id: string) => Promise<void>;
     mergeRawMaterials: (sourceRawMaterialIds: string[], destinationRawMaterialId: string) => Promise<void>;
+    addMultipleRawMaterials: (data: any[]) => Promise<number>;
+    deleteAllRawMaterials: () => Promise<void>;
 }
 
 export interface RecipesContextType {
     recipes: Recipe[];
-    addRecipe: (recipe: Omit<Recipe, 'id'>) => Promise<void>;
+    addRecipe: (recipe: Omit<Recipe, 'id'>) => Promise<string>;
     updateRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: string) => Promise<void>;
-    addMultipleRecipes: (data: any[]) => Promise<number>;
+    addMultipleRecipes: (data: any[]) => Promise<{ successCount: number; failures: { name: string; reason: string }[] }>;
+    deleteAllRecipes: () => Promise<void>;
 }
 
 export interface RestaurantsContextType {
@@ -346,7 +365,7 @@ export interface RestaurantsContextType {
 
 export interface OrdersContextType {
     orders: Order[];
-    addOrder: (order: Omit<Order, 'id'>) => Promise<void>;
+    addOrder: (order: Omit<Order, 'id'>) => Promise<string>;
     updateOrder: (order: Order) => Promise<void>;
     deleteOrder: (id: string) => Promise<void>;
 }
@@ -377,6 +396,8 @@ export interface ItemsContextType {
     updateMultipleItems: (itemsToUpdate: {id: string, displayRank: number}[]) => Promise<void>;
     batchUpdateServiceArticles: (itemIds: string[], articleId: string, action: 'add' | 'remove') => Promise<void>;
     batchUpdateAccompaniments: (itemIds: string[], accompanimentId: string, action: 'add' | 'remove') => Promise<void>;
+    batchUpdateItemType: (itemIds: string[], newType: ItemType) => Promise<void>;
+    batchUpdateItemNames: (updates: { id: string; newName: string }[]) => Promise<void>;
 };
 
 export interface PlanItem {

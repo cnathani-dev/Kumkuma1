@@ -1,26 +1,33 @@
 
+
+
+
+
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useItems, useAppCategories } from '../../contexts/AppContexts';
 import { Item, AppCategory, ItemType, PermissionLevel } from '../../types';
 import Modal from '../../components/Modal';
 import { primaryButton, secondaryButton, inputStyle, iconButton, dangerButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save, X, GripVertical, ListOrdered, ArrowUpAZ, ArrowDownAZ, Merge, Move, Leaf, Egg, Beef, Shrimp, Fish } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, X, GripVertical, ListOrdered, ArrowUpAZ, ArrowDownAZ, Merge, Move, Leaf, Egg, Beef, Shrimp, Fish, Drumstick } from 'lucide-react';
 import { generateCategoryOptions } from '../../lib/ui-helpers';
 import { CategoryTree } from '../../components/CategoryTree';
 import { ServiceArticleAssignment } from './ServiceArticleAssignment';
 import { CookingEstimates } from './CookingEstimates';
 import { ItemAccompanimentAssignment } from './ItemAccompanimentAssignment';
 
-const ItemTypeIcon = ({ type }: { type: ItemType }) => {
+const ItemTypeIcon = ({ type }: { type?: ItemType }) => {
+    if (!type) return null;
     switch (type) {
         case 'veg':
             return <span title="Veg"><Leaf size={14} className="text-green-600 flex-shrink-0" /></span>;
         case 'egg':
             return <span title="Egg"><Egg size={14} className="text-amber-600 flex-shrink-0" /></span>;
         case 'chicken':
-        case 'mutton':
         case 'natukodi':
-            return <span title="Non-Veg (Meat)"><Beef size={14} className="text-red-600 flex-shrink-0" /></span>;
+            return <span title="Chicken"><Drumstick size={14} className="text-orange-600 flex-shrink-0" /></span>;
+        case 'mutton':
+            return <span title="Mutton"><Beef size={14} className="text-red-600 flex-shrink-0" /></span>;
         case 'prawns':
             return <span title="Prawns"><Shrimp size={14} className="text-pink-600 flex-shrink-0" /></span>;
         case 'fish':
@@ -104,7 +111,7 @@ const MergeCategoryModal = ({ sourceCategory, allCategories, onCancel, onConfirm
 };
 
 export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) => {
-    const { items, addItem, updateItem, deleteItem, updateMultipleItems, deleteMultipleItems, moveMultipleItems } = useItems();
+    const { items, addItem, updateItem, deleteItem, updateMultipleItems, deleteMultipleItems, moveMultipleItems, batchUpdateItemType, batchUpdateItemNames } = useItems();
     const { categories, addCategory, updateCategory, deleteCategory, updateMultipleCategories, mergeCategory } = useAppCategories();
 
     const [modalState, setModalState] = useState<ModalState | null>(null);
@@ -120,6 +127,9 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
     const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
     const [mergeState, setMergeState] = useState<{source: AppCategory, destinationId: string} | null>(null);
+    const [newTypeForBatch, setNewTypeForBatch] = useState<ItemType>('veg');
+    const [findText, setFindText] = useState('');
+    const [replaceText, setReplaceText] = useState('');
 
     const canModify = permissions === 'modify';
 
@@ -154,26 +164,40 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
     }, [items, selectedCategoryId, itemFilter, sortOrder]);
 
     const handleItemDrop = (targetItemId: string) => {
-        if (!draggedItemId || draggedItemId === targetItemId || !selectedCategoryId || !canModify) return;
-
-        // Use the full, unfiltered list for reordering logic
+        if (!draggedItemId || !selectedCategoryId || !canModify) return;
+    
+        // Determine the items to drag. If the dragged item is part of a selection, drag the whole selection.
+        // Otherwise, drag just the single item.
+        const itemsToDragIds = selectedItemIds.has(draggedItemId)
+            ? selectedItemIds
+            : new Set([draggedItemId]);
+    
+        // Prevent dropping a selection onto one of its own items.
+        if (itemsToDragIds.has(targetItemId)) return;
+    
         const itemsInCurrentCategory = items
             .filter(i => i.categoryId === selectedCategoryId)
             .sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
-            
-        const draggedIndex = itemsInCurrentCategory.findIndex(i => i.id === draggedItemId);
-        const targetIndex = itemsInCurrentCategory.findIndex(i => i.id === targetItemId);
-
-        if (draggedIndex === -1 || targetIndex === -1) return;
-
-        const [removed] = itemsInCurrentCategory.splice(draggedIndex, 1);
-        itemsInCurrentCategory.splice(targetIndex, 0, removed);
-        
-        const updates = itemsInCurrentCategory.map((item, index) => ({
+    
+        // Get the full item objects for the items being dragged, preserving their relative order.
+        const draggedItems = itemsInCurrentCategory.filter(item => itemsToDragIds.has(item.id));
+        if (draggedItems.length === 0) return;
+    
+        // Create a new list without the dragged items.
+        const remainingItems = itemsInCurrentCategory.filter(item => !itemsToDragIds.has(item.id));
+    
+        // Find the index of the drop target in the remaining list.
+        const targetIndex = remainingItems.findIndex(i => i.id === targetItemId);
+        if (targetIndex === -1) return; // Should not happen if target is valid.
+    
+        // Insert the dragged items at the target index.
+        remainingItems.splice(targetIndex, 0, ...draggedItems);
+    
+        const updates = remainingItems.map((item, index) => ({
             id: item.id,
             displayRank: (index + 1) * 10
         }));
-
+    
         updateMultipleItems(updates);
     };
 
@@ -262,6 +286,46 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
                 setDestinationCategoryId('');
             } catch (e) {
                 alert(`Error moving items: ${e}`);
+            }
+        }
+    };
+
+    const handleBatchTypeUpdate = async () => {
+        if (!canModify || selectedItemIds.size === 0) return;
+        if (window.confirm(`Are you sure you want to change the type of ${selectedItemIds.size} item(s) to "${newTypeForBatch}"?`)) {
+            try {
+                await batchUpdateItemType(Array.from(selectedItemIds), newTypeForBatch);
+                setSelectedItemIds(new Set());
+            } catch (e) {
+                alert(`Error updating item types: ${e}`);
+            }
+        }
+    };
+
+    const handleBatchNameUpdate = async () => {
+        if (!canModify || selectedItemIds.size === 0 || !findText) {
+            alert("Please select items and enter text to find.");
+            return;
+        }
+    
+        const confirmationMessage = `Are you sure you want to replace "${findText}" with "${replaceText}" in the names of ${selectedItemIds.size} selected item(s)? This action cannot be undone.`;
+        
+        if (window.confirm(confirmationMessage)) {
+            try {
+                const updates = Array.from(selectedItemIds).map(id => {
+                    const item = items.find(i => i.id === id);
+                    if (!item) return null;
+                    const newName = item.name.split(findText).join(replaceText);
+                    return { id, newName };
+                }).filter((u): u is { id: string; newName: string } => !!u);
+                
+                await batchUpdateItemNames(updates);
+                setSelectedItemIds(new Set());
+                setFindText('');
+                setReplaceText('');
+                alert("Item names updated successfully.");
+            } catch (e) {
+                alert(`Error updating item names: ${e}`);
             }
         }
     };
@@ -453,6 +517,51 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
                                 </div>
                             </div>
                         )}
+                        
+                        {selectedItemIds.size > 0 && canModify && (
+                            <div className="mb-4 p-3 bg-primary-50 dark:bg-primary-900/30 rounded-lg space-y-3 border border-primary-200 dark:border-primary-500/30">
+                                <span className="font-semibold flex-shrink-0">{selectedItemIds.size} items selected.</span>
+                                
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <label htmlFor="batch-type-update" className="text-sm font-medium">Change type to:</label>
+                                    <select
+                                        id="batch-type-update"
+                                        value={newTypeForBatch}
+                                        onChange={e => setNewTypeForBatch(e.target.value as ItemType)}
+                                        className={inputStyle + ' w-auto py-1'}
+                                    >
+                                        {itemTypes.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                                    </select>
+                                    <button onClick={handleBatchTypeUpdate} className={secondaryButton + ' py-1'}>Apply Type</button>
+                                </div>
+
+                                <div className="flex items-end gap-2 flex-wrap pt-2 border-t border-primary-200/50 dark:border-primary-500/20">
+                                    <div className="flex-grow">
+                                        <label htmlFor="find-text" className="text-sm font-medium">Find in name:</label>
+                                        <input
+                                            id="find-text"
+                                            type="text"
+                                            value={findText}
+                                            onChange={e => setFindText(e.target.value)}
+                                            className={inputStyle + ' w-full py-1'}
+                                            placeholder="e.g. [SL]"
+                                        />
+                                    </div>
+                                    <div className="flex-grow">
+                                        <label htmlFor="replace-text" className="text-sm font-medium">Replace with:</label>
+                                        <input
+                                            id="replace-text"
+                                            type="text"
+                                            value={replaceText}
+                                            onChange={e => setReplaceText(e.target.value)}
+                                            className={inputStyle + ' w-full py-1'}
+                                            placeholder="(leave empty to remove)"
+                                        />
+                                    </div>
+                                    <button onClick={handleBatchNameUpdate} className={secondaryButton + ' py-1'}>Apply Name Change</button>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="overflow-y-auto">
                             {!selectedCategoryId ? (
@@ -474,7 +583,11 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
                                             <label className="text-sm font-semibold">Select All</label>
                                         </li>
                                     }
-                                    {filteredItems.map(item => (
+                                    {filteredItems.map(item => {
+                                        const isSelected = selectedItemIds.has(item.id);
+                                        const isBeingDraggedAsGroup = draggedItemId !== null && selectedItemIds.has(draggedItemId) && isSelected;
+
+                                        return (
                                         <li 
                                             key={item.id} 
                                             draggable={canModify && sortOrder === 'rank'}
@@ -494,10 +607,10 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
                                                 setDraggedItemId(null);
                                                 setDragOverItemId(null);
                                             }}
-                                            className={`py-3 flex justify-between items-center transition-colors ${dragOverItemId === item.id ? 'bg-primary-100 dark:bg-primary-900/40' : ''}`}
+                                            className={`py-3 flex justify-between items-center transition-all duration-150 ${dragOverItemId === item.id ? 'bg-primary-100 dark:bg-primary-900/40' : ''} ${isBeingDraggedAsGroup ? 'opacity-40' : ''}`}
                                         >
                                             <div className="flex items-center gap-2">
-                                                {canModify && <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" checked={selectedItemIds.has(item.id)} onChange={e => handleItemSelection(item.id, e.target.checked)}/>}
+                                                {canModify && <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" checked={isSelected} onChange={e => handleItemSelection(item.id, e.target.checked)}/>}
                                                 {canModify && sortOrder === 'rank' && <GripVertical size={16} className="cursor-move text-warm-gray-400"/>}
                                                 <div>
                                                     <div className="flex items-center gap-1.5">
@@ -518,7 +631,8 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
                                             </div>
                                             }
                                         </li>
-                                    ))}
+                                    );
+                                })}
                                 </ul>
                             )}
                         </div>

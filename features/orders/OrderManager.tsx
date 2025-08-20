@@ -51,8 +51,7 @@ export const OrderManager: React.FC<OrderManagerProps> = ({ orders, onAdd, onEdi
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-display font-bold">Production Orders</h1>
+            <div className="flex justify-end items-center mb-6">
                 <button onClick={onAdd} className={primaryButton}>
                     <Plus size={16}/> Create Order
                 </button>

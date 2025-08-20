@@ -1,7 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { AppCategory } from '../types';
 import { iconButton } from './common/styles';
-import { ChevronRight, ChevronDown, Edit, Trash2, GripVertical, Merge } from 'lucide-react';
+import { ChevronRight, ChevronDown, Edit, Trash2, GripVertical, Merge, Leaf, Beef } from 'lucide-react';
+
+const CategoryTypeIcon = ({ type }: { type: 'veg' | 'non-veg' | null | undefined }) => {
+    if (type === 'veg') {
+        return <span title="Veg Category"><Leaf size={14} className="text-green-600 flex-shrink-0" /></span>;
+    }
+    if (type === 'non-veg') {
+        return <span title="Non-Veg Category"><Beef size={14} className="text-red-600 flex-shrink-0" /></span>;
+    }
+    return null;
+};
 
 
 const CategoryNode = ({ category, hierarchy, onSelect, onEdit, onDelete, onMerge, selectedId, canModify, level = 0, onReorder, allCategories }: {
@@ -81,6 +91,7 @@ const CategoryNode = ({ category, hierarchy, onSelect, onEdit, onDelete, onMerge
                     {children && <button type="button" onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen);}}>{isOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</button>}
                     {!children && <div className="w-4"></div>} {/* Placeholder for alignment */}
                     <span className="font-semibold">{category.name}</span>
+                    <CategoryTypeIcon type={category.type} />
                 </div>
                 {canModify &&
                 <div className="flex items-center gap-1">

@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Event, Client, Charge, Transaction, FinancialHistoryEntry, PermissionLevel } from '../../types';
@@ -11,7 +13,7 @@ import Modal from '../../components/Modal';
 import { ChargeForm } from './ChargeForm';
 import { TransactionForm } from './TransactionForm';
 import { primaryButton, secondaryButton, iconButton, inputStyle, dangerButton } from '../../components/common/styles';
-import { Save, ArrowLeft, FileDown, Plus, Edit, Trash2, History, FilePenLine } from 'lucide-react';
+import { Save, ArrowLeft, FileDown, Plus, Edit, Trash2, History, FilePenLine, Users } from 'lucide-react';
 
 type FinanceModalState = 
     | { type: 'charge', data: Charge | null }
@@ -347,9 +349,12 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
                     <FilePenLine size={32} className="text-primary-500"/>
                     <div>
                         <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                            Financial Manager
+                            Finances
                         </h2>
-                        <p className="text-warm-gray-500">{clientName} - {event.eventType} - {formatDateRange(event.startDate, event.endDate)}</p>
+                        <p className="text-warm-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                            <span>{clientName} - {event.eventType} - {formatDateRange(event.startDate, event.endDate)}</span>
+                            <span className="flex items-center gap-1.5"><Users size={14}/> {event.pax || 0} PAX</span>
+                        </p>
                     </div>
                 </div>
                  <div className="flex items-center gap-2">

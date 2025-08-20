@@ -152,33 +152,48 @@ export const PlatterEditorPage = ({ platter: initialPlatter, onSave, onBack }: {
                 </div>
             </div>
 
-            <div className="p-6 bg-white dark:bg-warm-gray-800 rounded-lg shadow-md space-y-4">
-                <h3 className="font-bold text-lg">Platter Details</h3>
-                <div>
-                    <label className="block text-sm font-medium">Platter Name</label>
-                    <input type="text" value={name} onChange={e => setName(e.target.value)} required className={inputStyle} />
-                </div>
-            </div>
-
             <div className="p-6 bg-white dark:bg-warm-gray-800 rounded-lg shadow-md">
-                <h3 className="font-bold text-lg mb-4">Recipes in this Platter</h3>
-                <div className="space-y-2">
-                    {platterRecipes.map((pRecipe) => (
-                        <div key={pRecipe.tempId} className="flex items-center gap-2">
-                            <RecipeSearchInput
-                                recipes={sortedRecipes}
-                                value={pRecipe.recipeId}
-                                onSelect={(recipeId) => handleRecipeChange(pRecipe.tempId, 'recipeId', recipeId)}
-                            />
-                            <input type="number" placeholder="Qty" value={pRecipe.quantityMl || ''} onChange={e => handleRecipeChange(pRecipe.tempId, 'quantityMl', e.target.value)} className={inputStyle + " w-24"} min="0" step="any"/>
-                            <span className="w-16 text-sm text-gray-500">ml</span>
-                            <button type="button" onClick={() => handleRemoveRecipeRow(pRecipe.tempId)} className="text-accent-500 p-2 rounded-full hover:bg-accent-100"><Trash2 size={16}/></button>
-                        </div>
-                    ))}
+                 <div className="space-y-4">
+                    <h3 className="font-bold text-lg">Platter Details</h3>
+                    <div>
+                        <label className="block text-sm font-medium">Platter Name</label>
+                        <input type="text" value={name} onChange={e => setName(e.target.value)} required className={inputStyle} />
+                    </div>
                 </div>
-                <button type="button" onClick={handleAddRecipeRow} className={`${secondaryButton} mt-4`}>
-                    <Plus size={16}/> Add Recipe
-                </button>
+
+                <div className="mt-6 pt-6 border-t border-warm-gray-200 dark:border-warm-gray-700">
+                    <h3 className="font-bold text-lg mb-4">Recipes in this Platter</h3>
+                    
+                    {/* Header Row */}
+                    <div className="flex items-center gap-2 text-sm font-semibold text-warm-gray-500 mb-2 px-2">
+                        <span className="flex-grow">Recipe</span>
+                        <span className="w-24 text-right">Quantity</span>
+                        <span className="w-16 text-left">Unit</span>
+                        <div className="w-10"></div> {/* Spacer for alignment */}
+                    </div>
+
+                    <div className="space-y-2">
+                        {platterRecipes.map((pRecipe) => (
+                            <div key={pRecipe.tempId} className="flex items-center gap-2">
+                                <RecipeSearchInput
+                                    recipes={sortedRecipes}
+                                    value={pRecipe.recipeId}
+                                    onSelect={(recipeId) => handleRecipeChange(pRecipe.tempId, 'recipeId', recipeId)}
+                                />
+                                <input type="number" placeholder="Qty" value={pRecipe.quantityMl || ''} onChange={e => handleRecipeChange(pRecipe.tempId, 'quantityMl', e.target.value)} className={inputStyle + " w-24 text-right"} min="0" step="any"/>
+                                <span className="w-16 text-sm text-gray-500 text-left">ml</span>
+                                <div className="w-10 flex justify-center">
+                                    <button type="button" onClick={() => handleRemoveRecipeRow(pRecipe.tempId)} className="text-accent-500 p-2 rounded-full hover:bg-accent-100 dark:hover:bg-accent-900/50">
+                                        <Trash2 size={16}/>
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <button type="button" onClick={handleAddRecipeRow} className={`${secondaryButton} mt-4`}>
+                        <Plus size={16}/> Add Recipe
+                    </button>
+                </div>
             </div>
         </form>
     );

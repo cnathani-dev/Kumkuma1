@@ -1,12 +1,11 @@
 
-
 import React, { useState, createContext, useContext, ReactNode, useMemo, useEffect, useRef, ReactElement } from 'react';
 import { Item, MenuTemplate, User, AppCategory, ItemType, Event, Client, LiveCounter, LiveCounterItem, AuditLog, Catalog, FinancialSetting, LocationSetting, Role, AppPermissions, PermissionLevel, EventState, ServiceArticle, ItemAccompaniment, ItemsContextType, ItemAccompanimentsContextType, AppCategoriesContextType, EventsContextType, EventTypeSetting, StateChangeHistoryEntry, RawMaterial, Recipe, RecipeRawMaterial, RawMaterialsContextType, RecipesContextType, RestaurantSetting, RestaurantsContextType, Order, OrdersContextType, OrderTemplate, OrderTemplatesContextType, FinancialSettingContextType, Platter, PlattersContextType, Activity, ClientTask, ActivitiesContextType, ClientTasksContextType, MuhurthamDate, MuhurthamDatesContextType } from './types';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
 import { ClientDetailsPage, MyTasksModal } from './pages/ClientDetailsPage';
 import { v4 as uuidv4 } from 'uuid';
-import { Settings, LogOut, ArrowLeft, Menu, X, LayoutGrid, Building, ListTree, BookCopy, FileText, Salad, AreaChart, Users as UsersIcon, History, Database, Wrench, Key, ListChecks } from 'lucide-react';
+import { Settings, LogOut, ArrowLeft, Menu, X, LayoutGrid, Building, ListTree, BookCopy, FileText, Salad, AreaChart, Users as UsersIcon, History, Database, Wrench, Key, ListChecks, ChefHat, ClipboardList, ScrollText, Vegan, BookOpenCheck, Package, Loader2 } from 'lucide-react';
 import { db } from './firebase';
 import {
     collection,
@@ -30,7 +29,6 @@ import {
 import { cleanForFirebase, dateToYYYYMMDD, formatYYYYMMDD } from './lib/utils';
 import { AuthProvider, useAuth, useUserPermissions } from './contexts/AuthContext';
 import { logAuditEvent } from './lib/audit';
-import { KitchenDashboardPage } from './pages/KitchenDashboardPage';
 import Modal from './components/Modal';
 import { ChangePasswordForm } from './features/users/ChangePasswordForm';
 import {
@@ -55,7 +53,7 @@ const INITIAL_FINANCIAL_SETTINGS = {
     expenseTypes: ['Groceries', 'Staff Payment', 'Rent', 'Utilities'],
     paymentModes: ['Cash', 'UPI', 'Bank Transfer', 'Credit Card'],
     referralSources: ['Google', 'Word of Mouth', 'Existing Client', 'Vendor'],
-    units: ['kg', 'grams', 'litres', 'ml', 'pieces', 'bunch', 'packet'],
+    units: ['kg', 'grams', 'litres', 'ml', 'pieces', 'bunch', 'packet', 'portion'],
     eventTypes: ['Wedding', 'Birthday Party', 'Corporate Event', 'Private Gathering'],
     serviceArticles: ['Chafing Dish', 'Serving Spoon', 'Water Dispenser', 'Salad Bowl'],
 };
@@ -250,6 +248,37 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     const deleteRawMaterial = async (id: string) => {
         await deleteDoc(doc(db, 'ingredients', id));
     };
+    const addMultipleRawMaterials = async (data: any[]): Promise<number> => {
+        const batch = writeBatch(db);
+        const collectionRef = collection(db, 'ingredients');
+        const existingRawMaterials = new Set(rawMaterials.map(rm => `${rm.name.toLowerCase()}|${rm.unit.toLowerCase()}`));
+        let importedCount = 0;
+
+        data.forEach(row => {
+            const name = row.name?.trim();
+            const unit = row.unit?.trim();
+            if (name && unit) {
+                const key = `${name.toLowerCase()}|${unit.toLowerCase()}`;
+                if (!existingRawMaterials.has(key)) {
+                    const newDocRef = doc(collectionRef);
+                    batch.set(newDocRef, { name, unit });
+                    existingRawMaterials.add(key);
+                    importedCount++;
+                }
+            }
+        });
+        await batch.commit();
+        return importedCount;
+    };
+    const deleteAllRawMaterials = async () => {
+        if (window.confirm(`Are you sure you want to delete all ${rawMaterials.length} raw materials? This action cannot be undone.`)) {
+            const batch = writeBatch(db);
+            rawMaterials.forEach(rm => {
+                batch.delete(doc(db, 'ingredients', rm.id));
+            });
+            await batch.commit();
+        }
+    };
     const mergeRawMaterials = async (sourceRawMaterialIds: string[], destinationRawMaterialId: string) => {
         const batch = writeBatch(db);
     
@@ -286,8 +315,9 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         await batch.commit();
     };
 
-    const addRecipe = async (recipe: Omit<Recipe, 'id'>) => {
-        await addDoc(collection(db, 'recipes'), cleanForFirebase(recipe));
+    const addRecipe = async (recipe: Omit<Recipe, 'id'>): Promise<string> => {
+        const docRef = await addDoc(collection(db, 'recipes'), cleanForFirebase(recipe));
+        return docRef.id;
     };
     const updateRecipe = async (recipe: Recipe) => {
         await updateDoc(doc(db, 'recipes', recipe.id), cleanForFirebase(recipe));
@@ -295,64 +325,94 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     const deleteRecipe = async (id: string) => {
         await deleteDoc(doc(db, 'recipes', id));
     };
-    const addMultipleRecipes = async (data: any[]): Promise<number> => {
+    const deleteAllRecipes = async () => {
+        if (window.confirm(`Are you sure you want to delete all ${recipes.length} recipes? This action cannot be undone.`)) {
+            const batch = writeBatch(db);
+            recipes.forEach(recipe => {
+                batch.delete(doc(db, 'recipes', recipe.id));
+            });
+            await batch.commit();
+        }
+    };
+    const addMultipleRecipes = async (data: any[]): Promise<{ successCount: number; failures: { name: string; reason: string }[] }> => {
         const batch = writeBatch(db);
         const recipesCollection = collection(db, 'recipes');
         const rawMaterialsCollection = collection(db, 'ingredients');
-
+        const unitsCollection = collection(db, 'units');
+    
         const existingRecipes = [...recipes];
         const existingRawMaterials = [...rawMaterials];
-
-        const recipesToCreate = new Map<string, any[]>();
+        const existingUnits = [...units];
+    
+        const recipesToImport = new Map<string, any[]>();
         data.forEach(row => {
             const recipeName = row['recipe']?.trim();
             if (!recipeName) return;
-            if (!recipesToCreate.has(recipeName.toLowerCase())) {
-                recipesToCreate.set(recipeName.toLowerCase(), []);
+            const recipeNameKey = recipeName.toLowerCase();
+            if (!recipesToImport.has(recipeNameKey)) {
+                recipesToImport.set(recipeNameKey, []);
             }
-            recipesToCreate.get(recipeName.toLowerCase())!.push(row);
+            recipesToImport.get(recipeNameKey)!.push(row);
         });
-
-        let importedCount = 0;
+    
+        let successCount = 0;
+        const failures: { name: string; reason: string }[] = [];
         
-        for (const [recipeNameKey, rows] of recipesToCreate.entries()) {
+        for (const [recipeNameKey, rows] of recipesToImport.entries()) {
             const recipeName = rows[0]['recipe'].trim();
-            if (existingRecipes.some(r => r.name.toLowerCase() === recipeNameKey)) {
-                console.warn(`Skipping recipe "${recipeName}" as it already exists.`);
+            let hasError = false;
+    
+            const outputRow = rows.find(r => (r['yield quantity'] || r['output quantity']) && (r['yield unit'] || r['output unit']));
+            if (!outputRow) {
+                failures.push({ name: recipeName, reason: "No row found with 'Yield Quantity'/'Output Quantity' and 'Yield Unit'/'Output Unit'." });
                 continue;
+            }
+            
+            const yieldUnit = String(outputRow['output unit'] || outputRow['yield unit'] || '').trim();
+
+            if (yieldUnit && !existingUnits.some(u => u.name.toLowerCase() === yieldUnit.toLowerCase())) {
+                const newUnitData = { name: yieldUnit };
+                const newUnitRef = doc(unitsCollection);
+                batch.set(newUnitRef, cleanForFirebase(newUnitData));
+                existingUnits.push({ id: newUnitRef.id, ...newUnitData });
             }
 
-            const outputRow = rows.find(r => r['output quantity'] && r['output unit']);
-            if (!outputRow) {
-                console.warn(`Skipping recipe "${recipeName}" due to missing output quantity/unit.`);
-                continue;
-            }
+            const yieldQuantity = Number(outputRow['output quantity'] || outputRow['yield quantity'] || 0);
+            const defaultOrderingUnit = String(outputRow['default ordering unit'] || yieldUnit).trim();
             
-            const outputUnit = String(outputRow['output unit']).toLowerCase();
-            const outputKg = (outputUnit === 'kg' || outputUnit === 'kgs') ? Number(outputRow['output quantity']) : 0;
-            const outputLitres = (outputUnit === 'litres' || outputUnit === 'litre') ? Number(outputRow['output quantity']) : 0;
-            
-            if (outputKg <= 0 && outputLitres <= 0) {
-                console.warn(`Skipping recipe "${recipeName}" due to invalid output quantity/unit.`);
+            if (isNaN(yieldQuantity) || yieldQuantity <= 0 || !yieldUnit) {
+                failures.push({ name: recipeName, reason: "Invalid or zero value for 'Yield/Output Quantity' or 'Yield/Output Unit'." });
                 continue;
             }
             
             const recipeRawMaterials: RecipeRawMaterial[] = [];
-
+    
             for (const row of rows) {
                 const rawMaterialName = row['raw material']?.trim();
+                if (!rawMaterialName) continue;
+                
                 const rawMaterialUnit = row['raw material unit']?.trim();
-                const rawMaterialQty = Number(row['raw material qty']);
-
-                if (!rawMaterialName || !rawMaterialUnit || isNaN(rawMaterialQty) || rawMaterialQty <= 0) {
-                    continue;
+                
+                if (rawMaterialUnit && !existingUnits.some(u => u.name.toLowerCase() === rawMaterialUnit.toLowerCase())) {
+                    const newUnitData = { name: rawMaterialUnit };
+                    const newUnitRef = doc(unitsCollection);
+                    batch.set(newUnitRef, cleanForFirebase(newUnitData));
+                    existingUnits.push({ id: newUnitRef.id, ...newUnitData });
                 }
 
+                const rawMaterialQty = Number(row['raw material qty']);
+    
+                if (!rawMaterialUnit || isNaN(rawMaterialQty) || rawMaterialQty <= 0) {
+                    failures.push({ name: recipeName, reason: `Invalid data for raw material "${rawMaterialName}". Ensure 'Raw Material Unit' and 'Raw Material Qty' are valid.` });
+                    hasError = true;
+                    break;
+                }
+    
                 let rawMaterial = existingRawMaterials.find(rm => 
                     rm.name.toLowerCase() === rawMaterialName.toLowerCase() && 
                     rm.unit.toLowerCase() === rawMaterialUnit.toLowerCase()
                 );
-
+    
                 if (!rawMaterial) {
                     const newRawMaterialData = { name: rawMaterialName, unit: rawMaterialUnit };
                     const newDocRef = doc(rawMaterialsCollection);
@@ -361,29 +421,39 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
                     rawMaterial = { id: newDocRef.id, ...newRawMaterialData };
                     existingRawMaterials.push(rawMaterial);
                 }
-
+    
                 recipeRawMaterials.push({
                     rawMaterialId: rawMaterial.id,
                     quantity: rawMaterialQty,
                 });
             }
+    
+            if (hasError) continue;
             
-            const newRecipe: Omit<Recipe, 'id'> = {
+            const recipeData: Omit<Recipe, 'id'> = {
                 name: recipeName,
                 instructions: outputRow['instructions'] || '',
-                outputKg,
-                outputLitres,
+                yieldQuantity,
+                yieldUnit,
                 rawMaterials: recipeRawMaterials,
+                defaultOrderingUnit,
             };
-
-            const newRecipeRef = doc(recipesCollection);
-            batch.set(newRecipeRef, cleanForFirebase(newRecipe));
-            existingRecipes.push({ id: newRecipeRef.id, ...newRecipe });
-            importedCount++;
+    
+            const existingRecipe = existingRecipes.find(r => r.name.toLowerCase() === recipeNameKey);
+    
+            if (existingRecipe) {
+                const recipeRef = doc(db, 'recipes', existingRecipe.id);
+                batch.update(recipeRef, cleanForFirebase(recipeData));
+            } else {
+                const newRecipeRef = doc(recipesCollection);
+                batch.set(newRecipeRef, cleanForFirebase(recipeData));
+            }
+            
+            successCount++;
         }
-
+    
         await batch.commit();
-        return importedCount;
+        return { successCount, failures };
     };
     
     const addRestaurant = async (restaurant: Omit<RestaurantSetting, 'id'>) => {
@@ -396,8 +466,9 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         await deleteDoc(doc(db, 'restaurants', id));
     };
 
-    const addOrder = async (order: Omit<Order, 'id'>) => {
-        await addDoc(collection(db, 'orders'), cleanForFirebase(order));
+    const addOrder = async (order: Omit<Order, 'id'>): Promise<string> => {
+        const docRef = await addDoc(collection(db, 'orders'), cleanForFirebase(order));
+        return docRef.id;
     };
     const updateOrder = async (order: Order) => {
         await updateDoc(doc(db, 'orders', order.id), cleanForFirebase(order));
@@ -571,6 +642,20 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         ids.forEach(id => batch.update(doc(db, 'items', id), { accompanimentIds: op }));
         await batch.commit();
     };
+    const batchUpdateItemType = async (itemIds: string[], newType: ItemType) => {
+        const batch = writeBatch(db);
+        itemIds.forEach(id => {
+            batch.update(doc(db, 'items', id), { type: newType });
+        });
+        await batch.commit();
+    };
+    const batchUpdateItemNames = async (updates: { id: string; newName: string }[]) => {
+        const batch = writeBatch(db);
+        updates.forEach(update => {
+            batch.update(doc(db, 'items', update.id), { name: update.newName });
+        });
+        await batch.commit();
+    };
 
     const addCatalog = async (cat: Omit<Catalog, 'id'>) => { await addDoc(collection(db, 'catalogs'), cleanForFirebase(cat)); };
     const updateCatalog = async (cat: Catalog) => { await updateDoc(doc(db, 'catalogs', cat.id), cleanForFirebase(cat)); };
@@ -626,13 +711,69 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         const sourceUnits = units.filter(u => sourceIds.includes(u.id));
         const sourceUnitNames = sourceUnits.map(u => u.name);
     
-        const ingredientsQuery = query(collection(db, 'ingredients'), where('unit', 'in', sourceUnitNames));
-        const ingredientsSnapshot = await getDocs(ingredientsQuery);
-        
-        ingredientsSnapshot.forEach(docSnapshot => {
-            batch.update(docSnapshot.ref, { unit: destinationUnit.name });
+        // 1. Update Raw Materials (ingredients collection)
+        rawMaterials.forEach(rm => {
+            if (sourceUnitNames.includes(rm.unit)) {
+                batch.update(doc(db, 'ingredients', rm.id), { unit: destinationUnit.name });
+            }
         });
-    
+
+        // 2. Update Recipes
+        recipes.forEach(recipe => {
+            const updatePayload: any = {};
+            let needsUpdate = false;
+            if (recipe.yieldUnit && sourceUnitNames.includes(recipe.yieldUnit)) {
+                updatePayload.yieldUnit = destinationUnit.name;
+                needsUpdate = true;
+            }
+            if (recipe.defaultOrderingUnit && sourceUnitNames.includes(recipe.defaultOrderingUnit)) {
+                updatePayload.defaultOrderingUnit = destinationUnit.name;
+                needsUpdate = true;
+            }
+            if (recipe.conversions && recipe.conversions.length > 0) {
+                let conversionsChanged = false;
+                const newConversions = recipe.conversions.map(conv => {
+                    if (sourceUnitNames.includes(conv.unit)) {
+                        conversionsChanged = true;
+                        return { ...conv, unit: destinationUnit.name };
+                    }
+                    return conv;
+                });
+                if(conversionsChanged) {
+                    updatePayload.conversions = newConversions;
+                    needsUpdate = true;
+                }
+            }
+            if (needsUpdate) {
+                batch.update(doc(db, 'recipes', recipe.id), updatePayload);
+            }
+        });
+
+        // 3. Update Categories (Cooking Estimates)
+        categories.forEach(category => {
+            const updatePayload: any = {};
+            let needsUpdate = false;
+            if (category.quantityUnit && sourceUnitNames.includes(category.quantityUnit)) {
+                updatePayload.quantityUnit = destinationUnit.name;
+                needsUpdate = true;
+            }
+            if (category.quantityUnit_nonVeg && sourceUnitNames.includes(category.quantityUnit_nonVeg)) {
+                updatePayload.quantityUnit_nonVeg = destinationUnit.name;
+                needsUpdate = true;
+            }
+            if (needsUpdate) {
+                batch.update(doc(db, 'categories', category.id), updatePayload);
+            }
+        });
+
+        // 4. Update Item Accompaniments
+        itemAccompaniments.forEach(acc => {
+            if (acc.quantityUnit && sourceUnitNames.includes(acc.quantityUnit)) {
+                batch.update(doc(db, 'itemAccompaniments', acc.id), { quantityUnit: destinationUnit.name });
+            }
+        });
+
+        // 5. Delete source units
         sourceIds.forEach(id => {
             batch.delete(doc(db, 'units', id));
         });
@@ -641,8 +782,8 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     };
 
     // --- CONTEXT VALUES ---
-    const rawMaterialsContextValue: RawMaterialsContextType = { rawMaterials, addRawMaterial, updateRawMaterial, deleteRawMaterial, mergeRawMaterials };
-    const recipesContextValue: RecipesContextType = { recipes, addRecipe, updateRecipe, deleteRecipe, addMultipleRecipes };
+    const rawMaterialsContextValue: RawMaterialsContextType = { rawMaterials, addRawMaterial, updateRawMaterial, deleteRawMaterial, mergeRawMaterials, addMultipleRawMaterials, deleteAllRawMaterials };
+    const recipesContextValue: RecipesContextType = { recipes, addRecipe, updateRecipe, deleteRecipe, addMultipleRecipes, deleteAllRecipes };
     const restaurantsContextValue: RestaurantsContextType = { restaurants, addRestaurant, updateRestaurant, deleteRestaurant };
     const ordersContextValue: OrdersContextType = { orders, addOrder, updateOrder, deleteOrder };
     const orderTemplatesContextValue: OrderTemplatesContextType = { orderTemplates, addOrderTemplate, updateOrderTemplate, deleteOrderTemplate };
@@ -652,7 +793,7 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     const usersContextValue = { users, addUser, updateUser, deleteUser };
     const rolesContextValue = { roles, addRole, updateRole, deleteRole };
     const categoriesContextValue = { categories, addCategory, updateCategory, deleteCategory, updateMultipleCategories, mergeCategory, addMultipleCategories: (d:any) => Promise.resolve(0), deleteAllCategories: () => Promise.resolve() };
-    const itemsContextValue = { items, addItem, updateItem, deleteItem, deleteMultipleItems, moveMultipleItems, updateMultipleItems, batchUpdateServiceArticles, batchUpdateAccompaniments, addMultipleItems: (d:any) => Promise.resolve(0), deleteAllItems: () => Promise.resolve() };
+    const itemsContextValue: ItemsContextType = { items, addItem, updateItem, deleteItem, deleteMultipleItems, moveMultipleItems, updateMultipleItems, batchUpdateServiceArticles, batchUpdateAccompaniments, addMultipleItems: (d:any) => Promise.resolve(0), deleteAllItems: () => Promise.resolve(), batchUpdateItemType, batchUpdateItemNames };
     const catalogsContextValue = { catalogs, addCatalog, updateCatalog, deleteCatalog, deleteAllCatalogs: () => Promise.resolve(), addMultipleCatalogs: (d:any) => Promise.resolve() };
     const templatesContextValue = { templates, addTemplate, updateTemplate, deleteTemplate, deleteAllTemplates: () => Promise.resolve() };
     const liveCountersContextValue = { liveCounters, addLiveCounter, updateLiveCounter, deleteLiveCounter, updateMultipleLiveCounters, addMultipleLiveCounters: (d:any) => Promise.resolve(new Map()), deleteAllLiveCountersAndItems: () => Promise.resolve() };
@@ -734,14 +875,13 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
 
 
 function App() {
-    const { currentUser, logout } = useAuth();
+    const { currentUser, isGuest, endGuestSession, logout, isInitializing } = useAuth();
     const permissions = useUserPermissions();
 
     const [isSidebarOpen, setSidebarOpen] = useState(false);
-    const [page, setPage] = useState<'dashboard' | 'clients' | 'itemBank' | 'catalogs' | 'templates' | 'liveCounters' | 'reports' | 'users' | 'audit' | 'dataHub' | 'settings'>('dashboard');
+    type PageName = 'dashboard' | 'clients' | 'itemBank' | 'catalogs' | 'templates' | 'liveCounters' | 'reports' | 'users' | 'audit' | 'dataHub' | 'settings' | 'orders' | 'orderTemplates' | 'platters' | 'recipes' | 'rawMaterials';
+    const [page, setPage] = useState<PageName>('dashboard');
     const [clientId, setClientId] = useState<string | null>(null);
-    const [eventIdToOpen, setEventIdToOpen] = useState<string | null>(null);
-    const [eventToEditId, setEventToEditId] = useState<string | null>(null);
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
     const [isMyTasksModalOpen, setIsMyTasksModalOpen] = useState(false);
     
@@ -752,7 +892,7 @@ function App() {
         name: '',
         phone: '',
         status: 'active' as 'active' | 'inactive' | 'all',
-        eventState: 'all' as 'all' | 'lead' | 'confirmed' | 'lost',
+        eventState: 'all' as 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled',
         tasks: 'all' as 'all' | 'overdue',
         startDate: '',
         endDate: '',
@@ -760,13 +900,40 @@ function App() {
         creationEndDate: '',
     });
 
+    const handleNavigation = (pageName: PageName, newClientId?: string) => {
+        setPage(pageName);
+        setClientId(newClientId || null);
+    };
+    
+    const navigateToClient = (page: 'dashboard' | 'clients', clientId?: string, eventId?: string, action?: 'editEvent' | 'viewMenu') => {
+        // This function now primarily handles setting the state for the ClientDetailsPage to consume
+        // It sets the client ID and lets the main renderer switch to that view.
+        setClientId(clientId || null);
+    };
+
     useEffect(() => {
-        // When an admin user logs in or the page loads, default them to the Data Hub.
-        // This is a temporary measure to avoid a crash on the dashboard caused by a data issue.
-        if (currentUser?.role === 'admin') {
-            setPage('dataHub');
+        const urlParams = new URLSearchParams(window.location.search);
+        const clientIdFromUrl = urlParams.get('clientId');
+        
+        if (clientIdFromUrl && currentUser && currentUser.role !== 'regular') {
+            handleNavigation('clients', clientIdFromUrl);
+            window.history.replaceState({}, document.title, window.location.pathname);
         }
-    }, [currentUser]);
+        
+        if (!clientIdFromUrl && isGuest) {
+            endGuestSession();
+        }
+    }, [currentUser, isGuest]);
+
+    useEffect(() => {
+        if (currentUser && !isGuest) {
+             if (currentUser.role === 'admin') {
+                setPage('dataHub');
+            } else if (currentUser.role === 'kitchen') {
+                setPage('dashboard');
+            }
+        }
+    }, [currentUser, isGuest]);
 
     const checkVersion = async () => {
         try {
@@ -792,157 +959,193 @@ function App() {
 
     const managedEvents = useMemo(() => {
         if (!currentUser) return [];
-        if (currentUser.role === 'admin') return events;
+        if (currentUser.role === 'admin' || currentUser.role === 'kitchen') return events;
         if (currentUser.role === 'staff' && currentUser.managedLocationIds && currentUser.managedLocationIds.length > 0) {
             return events.filter(e => currentUser.managedLocationIds!.includes(e.location));
         }
         return events; // Default for staff with no location restrictions
     }, [currentUser, events]);
 
-
-    const navigate = (page: 'dashboard' | 'clients', clientId?: string, eventId?: string, action?: 'editEvent' | 'viewMenu') => {
-        setClientId(clientId || null);
-        setPage(page);
-        setEventIdToOpen(action === 'viewMenu' ? eventId || null : null);
-        setEventToEditId(action === 'editEvent' ? eventId || null : null);
-    };
-
-    if (!currentUser) {
-        return <LoginPage />;
-    }
-
-    if (currentUser.role === 'regular') {
-        return <ClientDetailsPage clientId={currentUser.assignedClientId!} onBack={() => logout()} />;
+    if (isInitializing) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <Loader2 className="animate-spin text-primary-500" size={48} />
+            </div>
+        );
     }
     
-    if(currentUser.role === 'kitchen') {
-        return <KitchenDashboardPage />;
+    if (isGuest && currentUser?.assignedClientId) {
+        return (
+            <div className="flex flex-col h-screen">
+                <header className="flex items-center justify-between p-4 border-b border-warm-gray-200 dark:border-warm-gray-800 bg-white dark:bg-warm-gray-900 flex-shrink-0">
+                    <div className="leading-none py-1 inline-block">
+                        <span className="font-display font-bold text-2xl text-accent-500 tracking-wide">kumkuma</span>
+                        <span className="block font-body font-normal text-xs text-warm-gray-600 dark:text-warm-gray-300 tracking-[0.2em] uppercase">CATERERS</span>
+                    </div>
+                     <button onClick={endGuestSession} className={secondaryButton}>Staff Login</button>
+                </header>
+                <main className="flex-grow overflow-y-auto p-4 sm:p-6">
+                    <ClientDetailsPage
+                        clientId={currentUser.assignedClientId}
+                        onBack={endGuestSession} // This will likely not be used in guest mode
+                    />
+                </main>
+            </div>
+        );
+    }
+    
+    if (!currentUser) {
+        return <AuthProvider><LoginPage /></AuthProvider>;
     }
 
-    const NavLink = ({ icon: Icon, label, pageName }: { icon: React.ElementType, label: string, pageName: any }) => (
-        <button
-            onClick={() => { setPage(pageName); setClientId(null); setSidebarOpen(false); }}
-            className={`flex items-center w-full px-4 py-3 text-sm font-semibold rounded-lg transition-colors ${page === pageName && !clientId ? 'bg-primary-100 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300' : 'hover:bg-warm-gray-100 dark:hover:bg-warm-gray-800'}`}
-        >
-            <Icon size={20} className="mr-3" />
-            {label}
-        </button>
-    );
-
-    const sidebarContent = (
-        <div className="flex flex-col h-full">
-            <div className="p-4 border-b border-warm-gray-200 dark:border-warm-gray-700 flex justify-between items-center">
-                <div className="leading-none text-center">
-                    <span className="font-display font-bold text-2xl text-accent-500 tracking-normal">kumkuma</span>
-                    <span className="block font-body text-[0.6rem] text-warm-gray-600 dark:text-warm-gray-300 tracking-[0.2em] uppercase">CATERERS</span>
-                </div>
-                 <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1">
-                    <X size={24}/>
-                </button>
-            </div>
-            <nav className="flex-grow p-4 space-y-2 overflow-y-auto">
-                {permissions?.dashboard !== 'none' && <NavLink icon={LayoutGrid} label="Dashboard" pageName="dashboard" />}
-                {permissions?.clientsAndEvents !== 'none' && <NavLink icon={Building} label="Clients" pageName="clients" />}
-                {permissions?.itemBank !== 'none' && <NavLink icon={ListTree} label="Item Bank" pageName="itemBank" />}
-                {permissions?.catalogs !== 'none' && <NavLink icon={BookCopy} label="Catalogs" pageName="catalogs" />}
-                {permissions?.templates !== 'none' && <NavLink icon={FileText} label="Templates" pageName="templates" />}
-                {permissions?.liveCounters !== 'none' && <NavLink icon={Salad} label="Live Counters" pageName="liveCounters" />}
-                {permissions?.reports !== 'none' && <NavLink icon={AreaChart} label="Reports" pageName="reports" />}
-                {permissions?.users !== 'none' && <NavLink icon={UsersIcon} label="Users & Roles" pageName="users" />}
-                {currentUser?.role === 'admin' && <NavLink icon={History} label="Audit Logs" pageName="audit" />}
-                {currentUser?.role === 'admin' && <NavLink icon={Database} label="Data Hub" pageName="dataHub" />}
-                {permissions?.settings !== 'none' && <NavLink icon={Wrench} label="Settings" pageName="settings" />}
-            </nav>
-            <div className="p-4 border-t border-warm-gray-200 dark:border-warm-gray-700 space-y-2">
-                <div className="text-sm">Logged in as <strong>{currentUser.username}</strong></div>
-                <button onClick={() => setIsMyTasksModalOpen(true)} className="w-full flex items-center gap-2 text-sm font-semibold p-2 rounded-md hover:bg-warm-gray-100 dark:hover:bg-warm-gray-800">
-                    <ListChecks size={16}/> My Tasks
-                </button>
-                <button onClick={() => setIsChangePasswordModalOpen(true)} className="w-full flex items-center gap-2 text-sm font-semibold p-2 rounded-md hover:bg-warm-gray-100 dark:hover:bg-warm-gray-800">
-                    <Key size={16}/> Change Password
-                </button>
-                <button onClick={() => logout()} className="w-full flex items-center gap-2 text-sm font-semibold p-2 rounded-md hover:bg-warm-gray-100 dark:hover:bg-warm-gray-800">
-                    <LogOut size={16} /> Logout
-                </button>
-            </div>
-        </div>
-    );
-
-    return (
-        <div className="flex h-screen">
-             {isChangePasswordModalOpen && (
-                <Modal isOpen={isChangePasswordModalOpen} onClose={() => setIsChangePasswordModalOpen(false)} title="Change Password">
-                    <ChangePasswordForm onCancel={() => setIsChangePasswordModalOpen(false)} />
-                </Modal>
-            )}
-            {isMyTasksModalOpen && (
-                <MyTasksModal
-                    isOpen={isMyTasksModalOpen}
-                    onClose={() => setIsMyTasksModalOpen(false)}
-                    onNavigateToClient={(clientIdForNav) => {
-                        setIsMyTasksModalOpen(false);
-                        navigate('clients', clientIdForNav);
-                    }}
-                />
-            )}
-            {/* Mobile Sidebar */}
-            <div className={`fixed inset-0 z-50 bg-warm-gray-900/50 transition-opacity lg:hidden ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSidebarOpen(false)}></div>
-            <div className={`fixed top-0 left-0 h-full w-64 bg-ivory dark:bg-warm-gray-900 shadow-lg transform transition-transform z-50 lg:hidden ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                {sidebarContent}
-            </div>
-            
-            {/* Desktop Sidebar */}
-            <aside className="hidden lg:block w-64 flex-shrink-0 bg-ivory dark:bg-warm-gray-800 border-r border-warm-gray-200 dark:border-warm-gray-700">
-                {sidebarContent}
-            </aside>
-            <main className="flex-1 flex flex-col overflow-hidden">
-                <header className="flex items-center justify-between p-4 border-b border-warm-gray-200 dark:border-warm-gray-700 flex-shrink-0">
-                    <div className="flex items-center">
-                        <button onClick={() => setSidebarOpen(true)} className="lg:hidden mr-4 p-1">
-                           <Menu size={24}/>
-                        </button>
-                         {clientId && (
-                            <button onClick={() => { setClientId(null); setPage('clients'); }} className="flex items-center gap-2 font-semibold text-warm-gray-600 hover:text-warm-gray-900 dark:text-warm-gray-300 dark:hover:text-white">
-                                <ArrowLeft size={18}/> Back to Client List
-                            </button>
-                        )}
+    // Regular user logged in, show their details page
+    if (currentUser.role === 'regular' && currentUser.assignedClientId) {
+        return (
+            <div className="flex flex-col h-screen">
+                 <header className="flex items-center justify-between p-4 border-b border-warm-gray-200 dark:border-warm-gray-800 bg-white dark:bg-warm-gray-900 flex-shrink-0">
+                    <div className="leading-none py-1 inline-block">
+                        <span className="font-display font-bold text-2xl text-accent-500 tracking-wide">kumkuma</span>
+                        <span className="block font-body font-normal text-xs text-warm-gray-600 dark:text-warm-gray-300 tracking-[0.2em] uppercase">CATERERS</span>
                     </div>
-                     <div className="flex items-center gap-2">
-                         
-                    </div>
+                     <button onClick={logout} className={secondaryButton}>Logout</button>
                 </header>
-                <div className="flex-1 overflow-y-auto p-8">
-                    {clientId ?
-                        <ClientDetailsPage
-                            clientId={clientId}
-                            onBack={() => { setClientId(null); setPage('clients'); }}
-                            eventIdToOpen={eventIdToOpen}
-                            eventToEditId={eventToEditId}
-                        />
-                        :
-                        <AdminPage
-                            activePage={page}
-                            onNavigate={navigate}
-                            permissions={permissions!}
-                            userRole={currentUser.role}
-                            managedEvents={managedEvents}
-                            clients={clients}
-                            clientListFilters={clientListFilters}
-                            setClientListFilters={setClientListFilters}
-                        />
-                    }
+                <main className="flex-grow overflow-y-auto p-4 sm:p-6">
+                    <ClientDetailsPage
+                        clientId={currentUser.assignedClientId}
+                        onBack={() => {}} // No back button needed for client view
+                    />
+                </main>
+            </div>
+        );
+    }
+    
+    if (currentUser.role === 'staff' && !permissions) {
+        return <div className="p-8 text-center">Loading permissions...</div>;
+    }
+
+    const NavItem = ({ icon: Icon, label, pageName, activePage, onNavigate, permission }: { icon: React.ElementType, label: string, pageName: PageName, activePage: PageName, onNavigate: (p:PageName)=>void, permission: PermissionLevel }) => {
+        if (permission === 'none') return null;
+        return (
+            <li
+                onClick={() => onNavigate(pageName)}
+                className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${activePage === pageName ? 'bg-primary-100 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300 font-semibold' : 'hover:bg-warm-gray-100 dark:hover:bg-warm-gray-800'}`}
+            >
+                <Icon size={20} />
+                <span>{label}</span>
+            </li>
+        );
+    }
+    
+    const KitchenNavItem = ({ icon: Icon, label, pageName, activePage, onNavigate }: { icon: React.ElementType, label: string, pageName: PageName, activePage: PageName, onNavigate: (p:PageName)=>void }) => (
+         <li
+            onClick={() => onNavigate(pageName)}
+            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${activePage === pageName ? 'bg-primary-100 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300 font-semibold' : 'hover:bg-warm-gray-100 dark:hover:bg-warm-gray-800'}`}
+        >
+            <Icon size={20} />
+            <span>{label}</span>
+        </li>
+    );
+
+    const sidebarContent = currentUser.role === 'kitchen' ? (
+        <nav>
+            <ul className="space-y-2">
+                <KitchenNavItem icon={LayoutGrid} label="Dashboard" pageName="dashboard" activePage={page} onNavigate={p => handleNavigation(p)} />
+                <KitchenNavItem icon={ClipboardList} label="Orders" pageName="orders" activePage={page} onNavigate={p => handleNavigation(p)} />
+                <KitchenNavItem icon={ScrollText} label="Order Templates" pageName="orderTemplates" activePage={page} onNavigate={p => handleNavigation(p)} />
+                <KitchenNavItem icon={Salad} label="Platters" pageName="platters" activePage={page} onNavigate={p => handleNavigation(p)} />
+                <KitchenNavItem icon={BookOpenCheck} label="Recipes" pageName="recipes" activePage={page} onNavigate={p => handleNavigation(p)} />
+                <KitchenNavItem icon={Package} label="Raw Materials" pageName="rawMaterials" activePage={page} onNavigate={p => handleNavigation(p)} />
+            </ul>
+        </nav>
+    ) : (
+        <nav>
+            <ul className="space-y-2">
+                <NavItem icon={LayoutGrid} label="Dashboard" pageName="dashboard" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.dashboard} />
+                <NavItem icon={Building} label="Clients & Events" pageName="clients" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.clientsAndEvents} />
+                <h4 className="text-xs font-bold uppercase text-warm-gray-400 pt-4 pb-1 px-3">Food & Menu</h4>
+                <NavItem icon={ListTree} label="Item Bank" pageName="itemBank" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.itemBank} />
+                <NavItem icon={BookCopy} label="Catalogs" pageName="catalogs" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.catalogs} />
+                <NavItem icon={FileText} label="Templates" pageName="templates" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.templates} />
+                <NavItem icon={Salad} label="Live Counters" pageName="liveCounters" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.liveCounters} />
+                 <h4 className="text-xs font-bold uppercase text-warm-gray-400 pt-4 pb-1 px-3">Management</h4>
+                 <NavItem icon={AreaChart} label="Reports" pageName="reports" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.reports} />
+                {currentUser.role === 'admin' && <>
+                    <h4 className="text-xs font-bold uppercase text-warm-gray-400 pt-4 pb-1 px-3">Administration</h4>
+                    <NavItem icon={UsersIcon} label="Users & Roles" pageName="users" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.users} />
+                    <NavItem icon={History} label="Audit Logs" pageName="audit" activePage={page} onNavigate={p => handleNavigation(p)} permission={'modify'} />
+                    <NavItem icon={Database} label="Data Hub" pageName="dataHub" activePage={page} onNavigate={p => handleNavigation(p)} permission={'modify'} />
+                </>}
+                 <NavItem icon={Wrench} label="Settings" pageName="settings" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.settings} />
+            </ul>
+        </nav>
+    );
+
+    return (
+        <div>
+            {isChangePasswordModalOpen && <Modal isOpen={true} onClose={() => setIsChangePasswordModalOpen(false)} title="Change Password"><ChangePasswordForm onCancel={() => setIsChangePasswordModalOpen(false)} /></Modal>}
+            {isMyTasksModalOpen && <MyTasksModal isOpen={true} onClose={() => setIsMyTasksModalOpen(false)} onNavigateToClient={(clientId) => {setIsMyTasksModalOpen(false); handleNavigation('clients', clientId); }} />}
+            <div className="flex h-screen">
+                 {/* Sidebar */}
+                <aside className={`fixed z-40 inset-y-0 left-0 w-64 bg-white dark:bg-warm-gray-900 border-r border-warm-gray-200 dark:border-warm-gray-800 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out`}>
+                    <div className="flex items-center justify-between p-4 border-b border-warm-gray-200 dark:border-warm-gray-800">
+                         <div className="leading-none py-1">
+                            <span className="font-display font-bold text-2xl text-accent-500 tracking-wide">kumkuma</span>
+                            <span className="block font-body font-normal text-xs text-warm-gray-600 dark:text-warm-gray-300 tracking-[0.2em] uppercase">CATERERS</span>
+                        </div>
+                        <button onClick={() => setSidebarOpen(false)} className="md:hidden">
+                            <X size={24} />
+                        </button>
+                    </div>
+                    <div className="p-4 flex-grow overflow-y-auto">
+                        {sidebarContent}
+                    </div>
+                </aside>
+
+                 {/* Main Content */}
+                <div className="flex-1 flex flex-col">
+                    <header className="flex items-center justify-between p-4 border-b border-warm-gray-200 dark:border-warm-gray-800 bg-white dark:bg-warm-gray-900 sticky top-0 z-30">
+                        <button onClick={() => setSidebarOpen(true)} className="md:hidden"><Menu size={24} /></button>
+                        <div className="text-xl font-bold"></div> {/* Title removed to prevent duplication */}
+                        <div className="flex items-center gap-4">
+                            <button onClick={() => setIsMyTasksModalOpen(true)} className="relative" title="My Tasks">
+                                <ListChecks size={22} />
+                            </button>
+                            <button onClick={() => setIsChangePasswordModalOpen(true)} title="Change Password">
+                                <Key size={22} />
+                            </button>
+                            <button onClick={logout} className="flex items-center gap-2" title="Logout">
+                                <LogOut size={22} />
+                                <span className="text-sm hidden sm:inline">{currentUser.username}</span>
+                            </button>
+                        </div>
+                    </header>
+                    <main className="flex-grow overflow-y-auto p-4 sm:p-6">
+                        {clientId ? 
+                            <ClientDetailsPage 
+                                clientId={clientId} 
+                                onBack={() => { handleNavigation('clients'); }} 
+                            /> 
+                            : <AdminPage 
+                                activePage={page} 
+                                onNavigate={navigateToClient}
+                                permissions={permissions!}
+                                userRole={currentUser.role}
+                                managedEvents={managedEvents}
+                                clients={clients}
+                                clientListFilters={clientListFilters}
+                                setClientListFilters={setClientListFilters}
+                            />}
+                    </main>
                 </div>
-            </main>
+            </div>
         </div>
     );
 }
 
-export default function AppWrapper() {
-    return (
-        <AuthProvider>
-            <AppProviders>
-                <App />
-            </AppProviders>
-        </AuthProvider>
-    );
-}
+export default () => (
+    <AuthProvider>
+        <AppProviders>
+            <App />
+        </AppProviders>
+    </AuthProvider>
+);

@@ -3,6 +3,7 @@
 
 
 
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Event, Item, MenuTemplate, AppCategory, ItemType, LiveCounterItem, LiveCounter, Catalog, EventSession, EventState, Client } from '../../types';
 import { useItems, useTemplates, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs, useLocations } from '../../contexts/AppContexts';
@@ -26,7 +27,7 @@ interface HierarchicalItemData {
   childCatIds: string[];
 }
 
-interface MenuSummaryProps {
+export interface MenuSummaryProps {
   event: Event;
   allItems: Item[];
   allCategories: AppCategory[];
@@ -37,7 +38,7 @@ interface MenuSummaryProps {
 }
 
 // --- Helper: New MenuSummary Component for the right panel ---
-const MenuSummary: React.FC<MenuSummaryProps> = ({ 
+export const MenuSummary: React.FC<MenuSummaryProps> = ({ 
     event, 
     allItems,
     allCategories,

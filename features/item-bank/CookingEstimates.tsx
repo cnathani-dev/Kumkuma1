@@ -4,6 +4,7 @@
 
 
 
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAppCategories, useUnits, useItemAccompaniments } from '../../contexts/AppContexts';
 import { AppCategory, PermissionLevel, FinancialSetting, ItemAccompaniment } from '../../types';
@@ -38,12 +39,24 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
         additionalItemPercentage: category.additionalItemPercentage ?? '',
     });
 
+    const [localNonVegData, setLocalNonVegData] = useState({
+        baseQuantityPerPax_nonVeg: category.baseQuantityPerPax_nonVeg ?? '',
+        quantityUnit_nonVeg: category.quantityUnit_nonVeg ?? '',
+        additionalItemPercentage_nonVeg: category.additionalItemPercentage_nonVeg ?? '',
+    });
+
+
     // Sync with parent prop changes
     useEffect(() => {
         setLocalData({
             baseQuantityPerPax: category.baseQuantityPerPax ?? '',
             quantityUnit: category.quantityUnit ?? '',
             additionalItemPercentage: category.additionalItemPercentage ?? '',
+        });
+        setLocalNonVegData({
+            baseQuantityPerPax_nonVeg: category.baseQuantityPerPax_nonVeg ?? '',
+            quantityUnit_nonVeg: category.quantityUnit_nonVeg ?? '',
+            additionalItemPercentage_nonVeg: category.additionalItemPercentage_nonVeg ?? '',
         });
     }, [category]);
     
@@ -56,21 +69,35 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        const newLocalData = { ...localData, [name]: value };
-        setLocalData(newLocalData);
+        
+        const updatedLocalData = { ...localData };
+        const updatedLocalNonVegData = { ...localNonVegData };
+
+        if (name.endsWith('_nonVeg')) {
+            (updatedLocalNonVegData as any)[name] = value;
+            setLocalNonVegData(updatedLocalNonVegData);
+        } else {
+            (updatedLocalData as any)[name] = value;
+            setLocalData(updatedLocalData);
+        }
         
         debouncedUpdate({
             ...category,
-            baseQuantityPerPax: newLocalData.baseQuantityPerPax === '' ? undefined : Number(newLocalData.baseQuantityPerPax),
-            quantityUnit: newLocalData.quantityUnit,
-            additionalItemPercentage: newLocalData.additionalItemPercentage === '' ? undefined : Number(newLocalData.additionalItemPercentage),
+            baseQuantityPerPax: updatedLocalData.baseQuantityPerPax === '' ? undefined : Number(updatedLocalData.baseQuantityPerPax),
+            quantityUnit: updatedLocalData.quantityUnit,
+            additionalItemPercentage: updatedLocalData.additionalItemPercentage === '' ? undefined : Number(updatedLocalData.additionalItemPercentage),
+            baseQuantityPerPax_nonVeg: updatedLocalNonVegData.baseQuantityPerPax_nonVeg === '' ? undefined : Number(updatedLocalNonVegData.baseQuantityPerPax_nonVeg),
+            quantityUnit_nonVeg: updatedLocalNonVegData.quantityUnit_nonVeg,
+            additionalItemPercentage_nonVeg: updatedLocalNonVegData.additionalItemPercentage_nonVeg === '' ? undefined : Number(updatedLocalNonVegData.additionalItemPercentage_nonVeg),
         });
     };
     
+    const isVegCategory = category.type === 'veg';
+
     return (
         <li className="list-none">
-            <div className="grid grid-cols-4 gap-4 items-center p-2 border-t border-warm-gray-100 dark:border-warm-gray-700/50 hover:bg-warm-gray-50 dark:hover:bg-warm-gray-700/30">
-                <div style={{ paddingLeft: `${level * 24}px` }} className="flex items-center gap-1">
+            <div className="grid grid-cols-10 gap-4 items-center p-2 border-t border-warm-gray-100 dark:border-warm-gray-700/50 hover:bg-warm-gray-50 dark:hover:bg-warm-gray-700/30">
+                <div style={{ paddingLeft: `${level * 24}px` }} className="flex items-center gap-1 col-span-4">
                     {children.length > 0 && (
                         <button onClick={() => setIsOpen(!isOpen)} className="p-1 -ml-1">
                             {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -78,42 +105,22 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
                     )}
                     <span className="font-semibold">{category.name}</span>
                 </div>
-                <div>
-                    <input 
-                        type="number"
-                        name="baseQuantityPerPax"
-                        value={localData.baseQuantityPerPax}
-                        onChange={handleChange}
-                        disabled={!canModify}
-                        className={inputStyle + " text-sm"}
-                        placeholder="e.g., 100"
-                    />
-                </div>
-                <div>
-                     <select
-                        name="quantityUnit"
-                        value={localData.quantityUnit}
-                        onChange={handleChange}
-                        disabled={!canModify}
-                        className={inputStyle + " text-sm"}
-                    >
-                        <option value="">-- Select Unit --</option>
-                        {units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (
-                            <option key={unit.id} value={unit.name}>{unit.name}</option>
-                        ))}
-                    </select>
-                </div>
-                 <div>
-                    <input 
-                        type="number"
-                        name="additionalItemPercentage"
-                        value={localData.additionalItemPercentage}
-                        onChange={handleChange}
-                        disabled={!canModify}
-                        className={inputStyle + " text-sm"}
-                        placeholder="e.g., 20"
-                    />
-                </div>
+                
+                {/* Veg Menu Estimates */}
+                <div><input type="number" name="baseQuantityPerPax" value={localData.baseQuantityPerPax} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 100"/></div>
+                <div><select name="quantityUnit" value={localData.quantityUnit} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"}><option value="">-- Unit --</option>{units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (<option key={unit.id} value={unit.name}>{unit.name}</option>))}</select></div>
+                <div><input type="number" name="additionalItemPercentage" value={localData.additionalItemPercentage} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 20"/></div>
+                
+                {/* Non-Veg Menu Estimates */}
+                {isVegCategory ? (
+                    <>
+                        <div><input type="number" name="baseQuantityPerPax_nonVeg" value={localNonVegData.baseQuantityPerPax_nonVeg} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 75"/></div>
+                        <div><select name="quantityUnit_nonVeg" value={localNonVegData.quantityUnit_nonVeg} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"}><option value="">-- Unit --</option>{units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (<option key={unit.id} value={unit.name}>{unit.name}</option>))}</select></div>
+                        <div><input type="number" name="additionalItemPercentage_nonVeg" value={localNonVegData.additionalItemPercentage_nonVeg} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 10"/></div>
+                    </>
+                ) : (
+                    <div className="col-span-3 text-center text-sm text-warm-gray-400 p-2 italic">N/A</div>
+                )}
             </div>
             {isOpen && children.length > 0 && (
                 <ul className="list-none">
@@ -237,13 +244,20 @@ export const CookingEstimates = ({ permissions }: { permissions: PermissionLevel
                     Set cooking quantities for each category. For events, these values help estimate total preparation amounts. For example, if 'Base Qty' is 100g and 'Extra Item %' is 20, selecting two items from this category for 10 PAX would suggest cooking (10 * 100g) * 1.20 = 1200g total for that category, to be distributed among the items.
                 </p>
                 <div className="overflow-x-auto">
-                    <div className="min-w-[800px]">
+                    <div className="min-w-[1200px]">
                         {/* Table Header */}
-                        <div className="grid grid-cols-4 gap-4 font-semibold p-2 border-b-2 border-warm-gray-300 dark:border-warm-gray-600 text-sm text-warm-gray-600 dark:text-warm-gray-300">
-                            <div>Category Name</div>
-                            <div>Base Quantity per Pax</div>
-                            <div>Unit (e.g., g, ml, pcs)</div>
-                            <div>Additional Item Increase (%)</div>
+                        <div className="grid grid-cols-10 gap-4 font-semibold p-2 border-b-2 border-warm-gray-300 dark:border-warm-gray-600 text-sm text-warm-gray-600 dark:text-warm-gray-300">
+                            <div className="col-span-4 self-end">Category Name</div>
+                            <div className="col-span-3 text-center p-2 bg-green-50 dark:bg-green-900/30 rounded-t-md">Estimates for <span className="font-bold">VEG</span> Menus</div>
+                            <div className="col-span-3 text-center p-2 bg-red-50 dark:bg-red-900/30 rounded-t-md">Estimates for <span className="font-bold">NON-VEG</span> Menus</div>
+                            
+                            <div className="col-span-4"></div>
+                            <div className="text-xs">Base Qty / Pax</div>
+                            <div className="text-xs">Unit</div>
+                            <div className="text-xs">Add. Item %</div>
+                            <div className="text-xs">Base Qty / Pax</div>
+                            <div className="text-xs">Unit</div>
+                            <div className="text-xs">Add. Item %</div>
                         </div>
                         {/* Tree Body */}
                         <ul className="mt-2">

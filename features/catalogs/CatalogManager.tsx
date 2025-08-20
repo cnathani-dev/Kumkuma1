@@ -1,12 +1,8 @@
-
-
-
-
-import React, { useState, useMemo } from 'react';
-import { Catalog, Item, AppCategory } from '../../types';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Catalog, Item, AppCategory, ItemType } from '../../types';
 import { useCatalogs, useItems, useAppCategories } from '../../contexts/AppContexts';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, X, Leaf, Egg, Beef, Shrimp, Fish, Drumstick } from 'lucide-react';
 import { CategoryTree } from '../../components/CategoryTree';
 
 interface CatalogManagerProps {
@@ -47,8 +43,7 @@ export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAdd
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-display font-bold text-primary-600 dark:text-primary-400">Catalogs</h3>
+            <div className="flex justify-end items-center">
                 {canModify && 
                     <div className="flex items-center gap-2">
                         <button onClick={onAddClick} className={primaryButton}><Plus size={16}/> Add Catalog</button>
@@ -91,6 +86,82 @@ export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAdd
     );
 };
 
+const ItemTypeIcon = ({ type }: { type?: ItemType }) => {
+    if (!type) return null;
+    const iconProps = { size: 14, className: "flex-shrink-0" };
+    switch (type) {
+        case 'veg':
+            return <span title="Veg"><Leaf {...iconProps} className="text-green-600" /></span>;
+        case 'egg':
+            return <span title="Egg"><Egg {...iconProps} className="text-amber-600" /></span>;
+        case 'chicken':
+        case 'natukodi':
+            return <span title="Chicken"><Drumstick {...iconProps} className="text-orange-600" /></span>;
+        case 'mutton':
+            return <span title="Mutton"><Beef {...iconProps} className="text-red-600" /></span>;
+        case 'prawns':
+            return <span title="Prawns"><Shrimp {...iconProps} className="text-pink-600" /></span>;
+        case 'fish':
+            return <span title="Fish"><Fish {...iconProps} className="text-blue-600" /></span>;
+        default:
+            return null;
+    }
+};
+
+const CategoryItemGroup = ({ category, items, selectedItemIds, onToggleCategory, onToggleItem, isReadOnly }: {
+    category: AppCategory;
+    items: Item[];
+    selectedItemIds: Set<string>;
+    onToggleCategory: (itemsToToggle: Item[], shouldSelect: boolean) => void;
+    onToggleItem: (itemId: string) => void;
+    isReadOnly: boolean;
+}) => {
+    const checkboxRef = useRef<HTMLInputElement>(null);
+    const selectedCount = useMemo(() => items.filter(item => selectedItemIds.has(item.id)).length, [items, selectedItemIds]);
+    
+    const allSelected = selectedCount === items.length && items.length > 0;
+    const someSelected = selectedCount > 0 && !allSelected;
+
+    useEffect(() => {
+        if (checkboxRef.current) {
+            checkboxRef.current.indeterminate = someSelected;
+        }
+    }, [someSelected]);
+
+    return (
+        <div>
+            <div className="flex items-center gap-3 p-2 bg-warm-gray-50 dark:bg-warm-gray-700/50 rounded-t-md border-b border-warm-gray-200 dark:border-warm-gray-600">
+                <input
+                    ref={checkboxRef}
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={() => onToggleCategory(items, !allSelected)}
+                    disabled={isReadOnly || items.length === 0}
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                <h4 className="font-bold">{category.name}</h4>
+            </div>
+            <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                {items.map(item => (
+                    <li key={item.id} className="py-1">
+                        <label className={`flex items-center gap-3 p-2 rounded-md ${isReadOnly ? '' : 'hover:bg-warm-gray-50 dark:hover:bg-warm-gray-700/50 cursor-pointer'}`}>
+                            <input
+                                type="checkbox"
+                                checked={selectedItemIds.has(item.id)}
+                                onChange={() => onToggleItem(item.id)}
+                                disabled={isReadOnly}
+                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <ItemTypeIcon type={item.type} />
+                            <span>{item.name}</span>
+                        </label>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
 interface CatalogEditorProps {
     catalog: Catalog | Partial<Catalog>;
     onCancel: () => void;
@@ -128,6 +199,27 @@ export const CatalogEditor: React.FC<CatalogEditorProps> = ({ catalog, onCancel,
             .sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
     }, [allItems, selectedCategoryId, categories]);
 
+    const groupedItemsByCategory = useMemo(() => {
+        if (!itemsInCategory.length) return [];
+        const categoryMap = new Map(categories.map(c => [c.id, c]));
+        
+        const groups: Record<string, { category: AppCategory, items: Item[] }> = {};
+
+        itemsInCategory.forEach(item => {
+            const category = categoryMap.get(item.categoryId);
+            if (category) {
+                if (!groups[category.id]) {
+                    groups[category.id] = { category, items: [] };
+                }
+                groups[category.id].items.push(item);
+            }
+        });
+
+        return Object.values(groups).sort((a, b) => {
+            return (a.category.displayRank ?? Infinity) - (b.category.displayRank ?? Infinity) || a.category.name.localeCompare(b.category.name);
+        });
+
+    }, [itemsInCategory, categories]);
 
     const handleToggleItem = (itemId: string) => {
         if (isReadOnly) return;
@@ -137,6 +229,19 @@ export const CatalogEditor: React.FC<CatalogEditorProps> = ({ catalog, onCancel,
                 newSet.delete(itemId);
             } else {
                 newSet.add(itemId);
+            }
+            return newSet;
+        });
+    };
+
+    const handleToggleCategoryItems = (itemsToToggle: Item[], shouldSelect: boolean) => {
+        if (isReadOnly) return;
+        setSelectedItemIds(prev => {
+            const newSet = new Set(prev);
+            if (shouldSelect) {
+                itemsToToggle.forEach(item => newSet.add(item.id));
+            } else {
+                itemsToToggle.forEach(item => newSet.delete(item.id));
             }
             return newSet;
         });
@@ -222,27 +327,23 @@ export const CatalogEditor: React.FC<CatalogEditorProps> = ({ catalog, onCancel,
                     <div className="overflow-y-auto">
                         {!selectedCategoryId ? (
                             <p className="text-center py-10 text-warm-gray-500">Select a category to view its items.</p>
-                        ) : (
-                            <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
-                                {itemsInCategory.map(item => (
-                                    <li key={item.id} className="py-1">
-                                        <label className={`flex items-center gap-3 p-2 rounded-md ${isReadOnly ? '' : 'hover:bg-warm-gray-50 dark:hover:bg-warm-gray-700/50 cursor-pointer'}`}>
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedItemIds.has(item.id)}
-                                                onChange={() => handleToggleItem(item.id)}
-                                                disabled={isReadOnly}
-                                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                            />
-                                            <span>{item.name}</span>
-                                        </label>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                         {selectedCategoryId && itemsInCategory.length === 0 && (
+                        ) : groupedItemsByCategory && groupedItemsByCategory.length === 0 ? (
                             <p className="text-center py-10 text-warm-gray-500">No items in this category.</p>
-                         )}
+                        ) : (
+                            <div className="space-y-4">
+                                {groupedItemsByCategory && groupedItemsByCategory.map(({ category, items: categoryItems }) => (
+                                    <CategoryItemGroup
+                                        key={category.id}
+                                        category={category}
+                                        items={categoryItems}
+                                        selectedItemIds={selectedItemIds}
+                                        onToggleCategory={handleToggleCategoryItems}
+                                        onToggleItem={handleToggleItem}
+                                        isReadOnly={isReadOnly}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

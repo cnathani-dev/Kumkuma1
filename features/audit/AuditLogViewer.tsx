@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useMemo } from 'react';
 import { useAuditLogs, useUsers, useClients } from '../../contexts/AppContexts';
 import { inputStyle } from '../../components/common/styles';
@@ -30,8 +27,6 @@ export const AuditLogViewer = () => {
 
     return (
         <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md">
-            <h3 className="text-2xl font-display font-bold text-primary-600 dark:text-primary-400 mb-4">Audit Logs</h3>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 p-4 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-lg">
                 <select value={userFilter} onChange={e => setUserFilter(e.target.value)} className={inputStyle}>
                     <option value="">All Users</option>
