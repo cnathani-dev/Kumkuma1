@@ -1,5 +1,6 @@
 
 
+
 export interface FinancialHistoryEntry {
   timestamp: string; // ISO string
   userId: string;
@@ -82,6 +83,7 @@ export interface AppCategory {
   parentId: string | null;
   type?: 'veg' | 'non-veg' | null; // Only for parent categories
   displayRank?: number;
+  isStandardAccompaniment?: boolean;
 
   // Cooking estimates for VEG menus
   baseQuantityPerPax?: number;

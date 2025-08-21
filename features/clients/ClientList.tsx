@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Client, Event, EventState, FinancialHistoryEntry } from '../../types';
-import { useClients, useClientTasks, useEvents } from '../../contexts/AppContexts';
+import { useClients, useClientTasks, useEvents, useReferralSources } from '../../contexts/AppContexts';
 import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../../components/Modal';
 import { ClientForm } from '../../components/forms/ClientForm';
@@ -19,6 +19,7 @@ type FilterShape = {
     endDate: string;
     creationStartDate: string;
     creationEndDate: string;
+    referredBy: string;
 };
 
 const defaultFilters: Omit<FilterShape, 'name' | 'phone'> = {
@@ -29,6 +30,7 @@ const defaultFilters: Omit<FilterShape, 'name' | 'phone'> = {
     endDate: '',
     creationStartDate: '',
     creationEndDate: '',
+    referredBy: '',
 };
 
 const ActiveFilterPill = ({ label, onRemove }: { label: string, onRemove: () => void }) => (
@@ -104,6 +106,7 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
     const { addEvent } = useEvents();
     const { currentUser } = useAuth();
     const { tasks } = useClientTasks();
+    const { settings: referralSources } = useReferralSources();
     
     const overdueTasksByClient = useMemo(() => {
         const map = new Map<string, boolean>();
@@ -154,8 +157,9 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
             const nameMatch = client.name.toLowerCase().includes(filters.name.toLowerCase());
             const phoneMatch = client.phone.toLowerCase().includes(filters.phone.toLowerCase());
             const statusMatch = (filters.status === 'all') || ((client.status || 'active') === filters.status);
+            const referredByMatch = (filters.referredBy === '' || client.referredBy === filters.referredBy);
             
-            if (!nameMatch || !phoneMatch || !statusMatch) {
+            if (!nameMatch || !phoneMatch || !statusMatch || !referredByMatch) {
                 return false;
             }
     
@@ -287,6 +291,7 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
         if(filters.endDate) pills.push(<ActiveFilterPill key="endDate" label={`Event To: ${filters.endDate}`} onRemove={() => handleRemoveFilter('endDate')} />);
         if(filters.creationStartDate) pills.push(<ActiveFilterPill key="creationStartDate" label={`Created From: ${filters.creationStartDate}`} onRemove={() => handleRemoveFilter('creationStartDate')} />);
         if(filters.creationEndDate) pills.push(<ActiveFilterPill key="creationEndDate" label={`Created To: ${filters.creationEndDate}`} onRemove={() => handleRemoveFilter('creationEndDate')} />);
+        if(filters.referredBy) pills.push(<ActiveFilterPill key="referredBy" label={`Source: ${filters.referredBy}`} onRemove={() => handleRemoveFilter('referredBy')} />);
         return pills;
     };
     
@@ -353,6 +358,13 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
                                 <select name="tasks" value={filters.tasks} onChange={handleFilterChange} className={inputStyle}>
                                     <option value="all">All</option>
                                     <option value="overdue">Has Overdue</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Lead Source</label>
+                                <select name="referredBy" value={filters.referredBy} onChange={handleFilterChange} className={inputStyle}>
+                                    <option value="">All Sources</option>
+                                    {referralSources.slice().sort((a,b) => a.name.localeCompare(b.name)).map(source => <option key={source.id} value={source.name}>{source.name}</option>)}
                                 </select>
                             </div>
                         </div>

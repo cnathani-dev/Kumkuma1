@@ -1,8 +1,9 @@
 
 
+
 import React, { useState, useMemo } from 'react';
 import { Event, EventSession, EventState, MenuTemplate, LocationSetting, MenuSelectionStatus } from '../../types';
-import { useTemplates, useLocations, useEventTypes, useMuhurthamDates } from '../../contexts/AppContexts';
+import { useTemplates, useLocations, useEventTypes, useMuhurthamDates, useCatalogs, useAppCategories } from '../../contexts/AppContexts';
 import { inputStyle, primaryButton, secondaryButton } from '../common/styles';
 import { Save } from 'lucide-react';
 import { dateToYYYYMMDD } from '../../lib/utils';
@@ -18,6 +19,8 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
     const { locations } = useLocations();
     const { settings: eventTypes } = useEventTypes();
     const { muhurthamDates } = useMuhurthamDates();
+    const { catalogs } = useCatalogs();
+    const { categories } = useAppCategories();
 
     const [eventType, setEventType] = useState(event?.eventType || '');
     const [startDate, setStartDate] = useState(event?.startDate || '');
@@ -96,6 +99,27 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
                 transactions: [],
                 charges: [],
             };
+
+            // Pre-populate with standard accompaniments if a template is chosen
+            if (templateId && templateId !== 'NO_FOOD') {
+                const selectedTemplate = templates.find(t => t.id === templateId);
+                const selectedCatalog = selectedTemplate ? catalogs.find(c => c.id === selectedTemplate.catalogId) : null;
+
+                if (selectedCatalog) {
+                    const standardAccompanimentCategories = categories.filter(c => c.isStandardAccompaniment);
+                    const standardCategoryIds = new Set(standardAccompanimentCategories.map(c => c.id));
+                    
+                    const newItemIds: Record<string, string[]> = {};
+
+                    for (const catId in selectedCatalog.itemIds) {
+                        if (standardCategoryIds.has(catId)) {
+                            newItemIds[catId] = [...(selectedCatalog.itemIds[catId] || [])];
+                        }
+                    }
+                    newEventData.itemIds = newItemIds;
+                }
+            }
+
             onSave(newEventData);
         }
     };

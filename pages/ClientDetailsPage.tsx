@@ -3,7 +3,7 @@ import { useEvents, useClients, useClientTasks, useUsers } from '../../contexts/
 import { useUserPermissions, useAuth } from '../../contexts/AuthContext';
 import { Event, Client, EventState, StateChangeHistoryEntry, ClientTask, User, FinancialHistoryEntry, Transaction, Charge } from '../../types';
 import MenuCreator from '../features/menu-creator/MenuCreator';
-import { Plus, Edit, Trash2, Copy, Save, UserCheck, Check, Building, Phone, Mail, Map as MapIcon, Briefcase, ListChecks, Calendar, DollarSign, Clock, CheckCircle2, Link as LinkIcon } from 'lucide-react';
+import { Plus, Edit, Trash2, Copy, Save, UserCheck, Check, Building, Phone, Mail, Map as MapIcon, Briefcase, ListChecks, Calendar, DollarSign, Clock, CheckCircle2 } from 'lucide-react';
 import Modal from '../components/Modal';
 import { EventCard } from '../components/EventCard';
 import { primaryButton, dangerButton, secondaryButton, inputStyle, iconButton } from '../components/common/styles';
@@ -438,12 +438,12 @@ const HistoryTab: React.FC<{ client: Client, events: Event[] }> = ({ client, eve
 export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, onBack, eventIdToOpen, eventToEditId }) => {
     const { clients, updateClient, deleteClient } = useClients();
     const { events, addEvent, updateEvent, deleteEvent, duplicateEvent } = useEvents();
-    const { currentUser, isGuest } = useAuth();
+    const { currentUser } = useAuth();
     const permissions = useUserPermissions();
     
     type ActiveTab = 'events' | 'tasks' | 'history';
     const [activeTab, setActiveTab] = useState<ActiveTab>('events');
-    const tabsToShow: ActiveTab[] = (currentUser?.role === 'regular' || isGuest) ? ['events'] : ['events', 'tasks', 'history'];
+    const tabsToShow: ActiveTab[] = currentUser?.role === 'regular' ? ['events'] : ['events', 'tasks', 'history'];
 
     const [pageState, setPageState] = useState<PageState>('LIST');
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -593,9 +593,13 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, 
     const handleSaveServicePlan = (updatedEvent: Event) => { updateEvent(updatedEvent); setPageState('LIST'); setSelectedEvent(null); };
     const handleBackFromKitchenPlan = () => { setPageState('LIST'); setSelectedEvent(null); };
     
-    const copyDirectLink = () => {
-        const link = `${window.location.origin}/?clientId=${client.id}`;
-        navigator.clipboard.writeText(link).then(() => {
+    const copyCredentials = () => {
+        if (!client.phone) {
+            alert("Client phone number (which is their username and password) is not set. Cannot copy credentials.");
+            return;
+        }
+        const credentials = `Username: ${client.phone}\nPassword: ${client.phone}`;
+        navigator.clipboard.writeText(credentials).then(() => {
             setIsCopied(true);
             setTimeout(() => setIsCopied(false), 2000);
         });
@@ -672,14 +676,16 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, 
                             <p className="flex items-center gap-2"><Briefcase size={14}/> {client.company || 'N/A'}</p>
                         </div>
                     </div>
-                    {!isGuest && (
+                    {currentUser?.role !== 'regular' && (
                     <div className="flex items-center gap-2">
                         <button onClick={onBack} className={secondaryButton}>Back to List</button>
                         {canModify &&
                             <>
-                                <button onClick={copyDirectLink} className={secondaryButton}>
-                                    {isCopied ? <><CheckCircle2 size={16}/> Copied!</> : <><LinkIcon size={16}/> Copy Direct Link</>}
-                                </button>
+                                {client.hasSystemAccess && (
+                                    <button onClick={copyCredentials} className={secondaryButton}>
+                                        {isCopied ? <><CheckCircle2 size={16}/> Copied!</> : <><UserCheck size={16}/> Copy Credentials</>}
+                                    </button>
+                                )}
                                 <button onClick={() => setIsClientModalOpen(true)} className={primaryButton}><Edit size={16}/> Edit Client</button>
                                 {currentUser?.role === 'admin' && <button onClick={handleDeleteClient} className={dangerButton}><Trash2 size={16}/> Delete Client</button>}
                             </>

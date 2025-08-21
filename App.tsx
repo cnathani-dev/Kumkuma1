@@ -1,4 +1,5 @@
 
+
 import React, { useState, createContext, useContext, ReactNode, useMemo, useEffect, useRef, ReactElement } from 'react';
 import { Item, MenuTemplate, User, AppCategory, ItemType, Event, Client, LiveCounter, LiveCounterItem, AuditLog, Catalog, FinancialSetting, LocationSetting, Role, AppPermissions, PermissionLevel, EventState, ServiceArticle, ItemAccompaniment, ItemsContextType, ItemAccompanimentsContextType, AppCategoriesContextType, EventsContextType, EventTypeSetting, StateChangeHistoryEntry, RawMaterial, Recipe, RecipeRawMaterial, RawMaterialsContextType, RecipesContextType, RestaurantSetting, RestaurantsContextType, Order, OrdersContextType, OrderTemplate, OrderTemplatesContextType, FinancialSettingContextType, Platter, PlattersContextType, Activity, ClientTask, ActivitiesContextType, ClientTasksContextType, MuhurthamDate, MuhurthamDatesContextType } from './types';
 import AdminPage from './pages/AdminPage';
@@ -875,7 +876,7 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
 
 
 function App() {
-    const { currentUser, isGuest, endGuestSession, logout, isInitializing } = useAuth();
+    const { currentUser, logout, isInitializing } = useAuth();
     const permissions = useUserPermissions();
 
     const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -898,6 +899,7 @@ function App() {
         endDate: '',
         creationStartDate: '',
         creationEndDate: '',
+        referredBy: '',
     });
 
     const handleNavigation = (pageName: PageName, newClientId?: string) => {
@@ -919,21 +921,17 @@ function App() {
             handleNavigation('clients', clientIdFromUrl);
             window.history.replaceState({}, document.title, window.location.pathname);
         }
-        
-        if (!clientIdFromUrl && isGuest) {
-            endGuestSession();
-        }
-    }, [currentUser, isGuest]);
+    }, [currentUser]);
 
     useEffect(() => {
-        if (currentUser && !isGuest) {
+        if (currentUser) {
              if (currentUser.role === 'admin') {
                 setPage('dataHub');
             } else if (currentUser.role === 'kitchen') {
                 setPage('dashboard');
             }
         }
-    }, [currentUser, isGuest]);
+    }, [currentUser]);
 
     const checkVersion = async () => {
         try {
@@ -974,28 +972,8 @@ function App() {
         );
     }
     
-    if (isGuest && currentUser?.assignedClientId) {
-        return (
-            <div className="flex flex-col h-screen">
-                <header className="flex items-center justify-between p-4 border-b border-warm-gray-200 dark:border-warm-gray-800 bg-white dark:bg-warm-gray-900 flex-shrink-0">
-                    <div className="leading-none py-1 inline-block">
-                        <span className="font-display font-bold text-2xl text-accent-500 tracking-wide">kumkuma</span>
-                        <span className="block font-body font-normal text-xs text-warm-gray-600 dark:text-warm-gray-300 tracking-[0.2em] uppercase">CATERERS</span>
-                    </div>
-                     <button onClick={endGuestSession} className={secondaryButton}>Staff Login</button>
-                </header>
-                <main className="flex-grow overflow-y-auto p-4 sm:p-6">
-                    <ClientDetailsPage
-                        clientId={currentUser.assignedClientId}
-                        onBack={endGuestSession} // This will likely not be used in guest mode
-                    />
-                </main>
-            </div>
-        );
-    }
-    
     if (!currentUser) {
-        return <AuthProvider><LoginPage /></AuthProvider>;
+        return <LoginPage />;
     }
 
     // Regular user logged in, show their details page

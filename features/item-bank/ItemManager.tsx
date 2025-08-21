@@ -1,10 +1,4 @@
-
-
-
-
-
-
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useItems, useAppCategories } from '../../contexts/AppContexts';
 import { Item, AppCategory, ItemType, PermissionLevel } from '../../types';
 import Modal from '../../components/Modal';
@@ -110,6 +104,12 @@ const MergeCategoryModal = ({ sourceCategory, allCategories, onCancel, onConfirm
     );
 };
 
+interface ItemGroup {
+    category: AppCategory;
+    items: Item[];
+    isSubCategory: boolean;
+}
+
 export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) => {
     const { items, addItem, updateItem, deleteItem, updateMultipleItems, deleteMultipleItems, moveMultipleItems, batchUpdateItemType, batchUpdateItemNames } = useItems();
     const { categories, addCategory, updateCategory, deleteCategory, updateMultipleCategories, mergeCategory } = useAppCategories();
@@ -139,58 +139,116 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
         setSelectedItemIds(new Set()); // Clear selection when category changes
     }, [selectedCategoryId]);
 
-    const filteredItems = useMemo(() => {
+    const itemGroups = useMemo((): ItemGroup[] => {
         if (!selectedCategoryId) return [];
-        let itemsForCategory = items.filter(item => item.categoryId === selectedCategoryId);
 
-        if (itemFilter) {
-            const lowerCaseFilter = itemFilter.toLowerCase();
-            itemsForCategory = itemsForCategory.filter(item =>
-                item.name.toLowerCase().includes(lowerCaseFilter) ||
-                (item.description && item.description.toLowerCase().includes(lowerCaseFilter))
-            );
+        const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+        if (!selectedCategory) return [];
+
+        const directSubCategories = categories
+            .filter(c => c.parentId === selectedCategoryId)
+            .sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+
+        const processItems = (itemList: Item[]) => {
+            let filtered = itemList;
+            if (itemFilter) {
+                const lowerCaseFilter = itemFilter.toLowerCase();
+                filtered = filtered.filter(item =>
+                    item.name.toLowerCase().includes(lowerCaseFilter) ||
+                    (item.description && item.description.toLowerCase().includes(lowerCaseFilter))
+                );
+            }
+            
+            const sorted = [...filtered];
+            if (sortOrder === 'asc') {
+                sorted.sort((a, b) => a.name.localeCompare(b.name));
+            } else if (sortOrder === 'desc') {
+                sorted.sort((a, b) => b.name.localeCompare(a.name));
+            } else { // 'rank'
+                sorted.sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+            }
+            return sorted;
+        };
+        
+        const groups: ItemGroup[] = [];
+        
+        const parentItems = items.filter(i => i.categoryId === selectedCategoryId);
+        const processedParentItems = processItems(parentItems);
+        
+        if (processedParentItems.length > 0) {
+            groups.push({
+                category: selectedCategory,
+                items: processedParentItems,
+                isSubCategory: false,
+            });
         }
         
-        const sorted = [...itemsForCategory];
-        if (sortOrder === 'asc') {
-            sorted.sort((a, b) => a.name.localeCompare(b.name));
-        } else if (sortOrder === 'desc') {
-            sorted.sort((a, b) => b.name.localeCompare(a.name));
-        } else { // 'rank'
-            sorted.sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
-        }
-        return sorted;
+        directSubCategories.forEach(subCat => {
+            const subCatItems = items.filter(i => i.categoryId === subCat.id);
+            const processedSubCatItems = processItems(subCatItems);
+            
+            if (processedSubCatItems.length > 0) {
+                groups.push({
+                    category: subCat,
+                    items: processedSubCatItems,
+                    isSubCategory: true,
+                });
+            }
+        });
 
-    }, [items, selectedCategoryId, itemFilter, sortOrder]);
+        if (groups.length === 0 && directSubCategories.length === 0) {
+            groups.push({
+                category: selectedCategory,
+                items: [],
+                isSubCategory: false
+            });
+        }
+        
+        return groups;
+
+    }, [items, categories, selectedCategoryId, itemFilter, sortOrder]);
+    
+    const allVisibleItems = useMemo(() => itemGroups.flatMap(g => g.items), [itemGroups]);
 
     const handleItemDrop = (targetItemId: string) => {
         if (!draggedItemId || !selectedCategoryId || !canModify) return;
     
-        // Determine the items to drag. If the dragged item is part of a selection, drag the whole selection.
-        // Otherwise, drag just the single item.
         const itemsToDragIds = selectedItemIds.has(draggedItemId)
             ? selectedItemIds
             : new Set([draggedItemId]);
     
-        // Prevent dropping a selection onto one of its own items.
         if (itemsToDragIds.has(targetItemId)) return;
     
-        const itemsInCurrentCategory = items
-            .filter(i => i.categoryId === selectedCategoryId)
+        const allItemsInViewForDrag = itemGroups.flatMap(g => g.items);
+
+        const targetItem = allItemsInViewForDrag.find(i => i.id === targetItemId);
+        if(!targetItem) return;
+
+        // All dragged items must be from the same original category as the target item.
+        const sourceCategoryId = targetItem.categoryId;
+        const areItemsInSameCategory = Array.from(itemsToDragIds).every(id => {
+            const item = allItemsInViewForDrag.find(i => i.id === id);
+            return item && item.categoryId === sourceCategoryId;
+        });
+
+        if (!areItemsInSameCategory) {
+            // This prevents dragging across sub-category groups for now.
+            // A more complex implementation could allow this, but it requires reparenting.
+            return;
+        }
+
+        const itemsInCurrentSubCategory = allItemsInViewForDrag
+            .filter(i => i.categoryId === sourceCategoryId)
             .sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
     
-        // Get the full item objects for the items being dragged, preserving their relative order.
-        const draggedItems = itemsInCurrentCategory.filter(item => itemsToDragIds.has(item.id));
+        const draggedItems = itemsInCurrentSubCategory.filter(item => itemsToDragIds.has(item.id));
         if (draggedItems.length === 0) return;
     
-        // Create a new list without the dragged items.
-        const remainingItems = itemsInCurrentCategory.filter(item => !itemsToDragIds.has(item.id));
+        const remainingItems = itemsInCurrentSubCategory.filter(item => !itemsToDragIds.has(item.id));
     
-        // Find the index of the drop target in the remaining list.
         const targetIndex = remainingItems.findIndex(i => i.id === targetItemId);
-        if (targetIndex === -1) return; // Should not happen if target is valid.
+        if (targetIndex === -1) return;
     
-        // Insert the dragged items at the target index.
         remainingItems.splice(targetIndex, 0, ...draggedItems);
     
         const updates = remainingItems.map((item, index) => ({
@@ -258,7 +316,7 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
 
     const handleSelectAll = (checked: boolean) => {
         if (checked) {
-            setSelectedItemIds(new Set(filteredItems.map(item => item.id)));
+            setSelectedItemIds(new Set(allVisibleItems.map(item => item.id)));
         } else {
             setSelectedItemIds(new Set());
         }
@@ -566,73 +624,80 @@ export const ItemManager = ({ permissions }: { permissions: PermissionLevel }) =
                         <div className="overflow-y-auto">
                             {!selectedCategoryId ? (
                                 <p className="text-center py-10 text-warm-gray-500">Select a category to view items.</p>
-                            ) : filteredItems.length === 0 ? (
+                            ) : allVisibleItems.length === 0 ? (
                                 <p className="text-center py-10 text-warm-gray-500">
                                     {itemFilter ? 'No items match your filter.' : 'This category has no items.'}
                                 </p>
                             ) : (
-                                <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                                <ul>
                                     {canModify &&
-                                        <li className="py-2 flex items-center gap-2">
+                                        <li className="py-2 flex items-center gap-2 border-b border-warm-gray-200 dark:border-warm-gray-700">
                                             <input
                                                 type="checkbox"
                                                 className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                                checked={selectedItemIds.size > 0 && selectedItemIds.size === filteredItems.length}
+                                                checked={selectedItemIds.size > 0 && selectedItemIds.size === allVisibleItems.length}
                                                 onChange={(e) => handleSelectAll(e.target.checked)}
                                             />
                                             <label className="text-sm font-semibold">Select All</label>
                                         </li>
                                     }
-                                    {filteredItems.map(item => {
-                                        const isSelected = selectedItemIds.has(item.id);
-                                        const isBeingDraggedAsGroup = draggedItemId !== null && selectedItemIds.has(draggedItemId) && isSelected;
+                                    {itemGroups.map((group) => (
+                                        <Fragment key={group.category.id}>
+                                            {group.isSubCategory && (
+                                                <h4 className="font-bold text-md bg-warm-gray-50 dark:bg-warm-gray-700/50 p-2 my-2 rounded sticky top-0 z-10">{group.category.name}</h4>
+                                            )}
+                                            {group.items.map(item => {
+                                                const isSelected = selectedItemIds.has(item.id);
+                                                const isBeingDraggedAsGroup = draggedItemId !== null && selectedItemIds.has(draggedItemId) && isSelected;
 
-                                        return (
-                                        <li 
-                                            key={item.id} 
-                                            draggable={canModify && sortOrder === 'rank'}
-                                            onDragStart={(e) => {
-                                                if (!canModify || sortOrder !== 'rank') return;
-                                                e.dataTransfer.setData('application/my-app-item-id', item.id);
-                                                e.dataTransfer.effectAllowed = 'move';
-                                                setDraggedItemId(item.id);
-                                            }}
-                                            onDragOver={(e) => {
-                                                e.preventDefault();
-                                                if (item.id !== dragOverItemId) setDragOverItemId(item.id);
-                                            }}
-                                            onDragLeave={() => setDragOverItemId(null)}
-                                            onDrop={() => handleItemDrop(item.id)}
-                                            onDragEnd={() => {
-                                                setDraggedItemId(null);
-                                                setDragOverItemId(null);
-                                            }}
-                                            className={`py-3 flex justify-between items-center transition-all duration-150 ${dragOverItemId === item.id ? 'bg-primary-100 dark:bg-primary-900/40' : ''} ${isBeingDraggedAsGroup ? 'opacity-40' : ''}`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                {canModify && <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" checked={isSelected} onChange={e => handleItemSelection(item.id, e.target.checked)}/>}
-                                                {canModify && sortOrder === 'rank' && <GripVertical size={16} className="cursor-move text-warm-gray-400"/>}
-                                                <div>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <p className="font-semibold">{item.name}</p>
-                                                        <ItemTypeIcon type={item.type} />
+                                                return (
+                                                <li 
+                                                    key={item.id} 
+                                                    draggable={canModify && sortOrder === 'rank'}
+                                                    onDragStart={(e) => {
+                                                        if (!canModify || sortOrder !== 'rank') return;
+                                                        e.dataTransfer.setData('application/my-app-item-id', item.id);
+                                                        e.dataTransfer.effectAllowed = 'move';
+                                                        setDraggedItemId(item.id);
+                                                    }}
+                                                    onDragOver={(e) => {
+                                                        e.preventDefault();
+                                                        if (item.id !== dragOverItemId) setDragOverItemId(item.id);
+                                                    }}
+                                                    onDragLeave={() => setDragOverItemId(null)}
+                                                    onDrop={() => handleItemDrop(item.id)}
+                                                    onDragEnd={() => {
+                                                        setDraggedItemId(null);
+                                                        setDragOverItemId(null);
+                                                    }}
+                                                    className={`py-3 flex justify-between items-center transition-all duration-150 border-b border-warm-gray-100 dark:border-warm-gray-700/50 ${dragOverItemId === item.id ? 'bg-primary-100 dark:bg-primary-900/40' : ''} ${isBeingDraggedAsGroup ? 'opacity-40' : ''}`}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        {canModify && <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" checked={isSelected} onChange={e => handleItemSelection(item.id, e.target.checked)}/>}
+                                                        {canModify && sortOrder === 'rank' && <GripVertical size={16} className="cursor-move text-warm-gray-400"/>}
+                                                        <div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <p className="font-semibold">{item.name}</p>
+                                                                <ItemTypeIcon type={item.type} />
+                                                            </div>
+                                                            <p className="text-sm text-warm-gray-500">{item.description}</p>
+                                                        </div>
                                                     </div>
-                                                    <p className="text-sm text-warm-gray-500">{item.description}</p>
-                                                </div>
-                                            </div>
-                                            {canModify &&
-                                            <div className="flex items-center gap-1">
-                                                <button onClick={() => setModalState({type: 'item', data: item})} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Item">
-                                                    <Edit size={16} className="text-primary-600"/>
-                                                </button>
-                                                <button onClick={() => handleDeleteItem(item.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete Item">
-                                                    <Trash2 size={16} className="text-accent-500"/>
-                                                </button>
-                                            </div>
-                                            }
-                                        </li>
-                                    );
-                                })}
+                                                    {canModify &&
+                                                    <div className="flex items-center gap-1">
+                                                        <button onClick={() => setModalState({type: 'item', data: item})} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Item">
+                                                            <Edit size={16} className="text-primary-600"/>
+                                                        </button>
+                                                        <button onClick={() => handleDeleteItem(item.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete Item">
+                                                            <Trash2 size={16} className="text-accent-500"/>
+                                                        </button>
+                                                    </div>
+                                                    }
+                                                </li>
+                                            );
+                                        })}
+                                        </Fragment>
+                                    ))}
                                 </ul>
                             )}
                         </div>
@@ -659,10 +724,11 @@ const CategoryForm = ({ onSave, onCancel, category, allCategories }: {
     const [parentId, setParentId] = useState(category?.parentId || null);
     const [type, setType] = useState<'veg' | 'non-veg' | null>(category?.type || null);
     const [displayRank, setDisplayRank] = useState(category?.displayRank || 0);
+    const [isStandardAccompaniment, setIsStandardAccompaniment] = useState(category?.isStandardAccompaniment || false);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const data = { name, parentId, type: parentId ? null : type, displayRank: Number(displayRank) };
+        const data = { name, parentId, type: parentId ? null : type, displayRank: Number(displayRank), isStandardAccompaniment };
         if(category && 'id' in category) {
             onSave({ id: category.id, ...data });
         } else {
@@ -687,6 +753,19 @@ const CategoryForm = ({ onSave, onCancel, category, allCategories }: {
                 </select>
             }
             <input type="number" placeholder="Display Rank" value={displayRank} onChange={e => setDisplayRank(Number(e.target.value))} className={inputStyle} />
+            <div className="flex items-center">
+                <input
+                    id="isStandardAccompaniment"
+                    type="checkbox"
+                    checked={isStandardAccompaniment}
+                    onChange={e => setIsStandardAccompaniment(e.target.checked)}
+                    className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                />
+                <label htmlFor="isStandardAccompaniment" className="ml-2 block text-sm text-warm-gray-900 dark:text-warm-gray-200">
+                    Standard Accompaniments Category
+                </label>
+            </div>
+            <p className="text-xs text-warm-gray-500 -mt-2">Items in this category will be pre-selected when creating a menu from a template.</p>
             <div className="flex justify-end gap-3 pt-4">
                 <button type="button" onClick={onCancel} className={secondaryButton}>Cancel</button>
                 <button type="submit" className={primaryButton}><Save size={18}/> Save</button>

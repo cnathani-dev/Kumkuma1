@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Catalog, Item, AppCategory, ItemType } from '../../types';
 import { useCatalogs, useItems, useAppCategories } from '../../contexts/AppContexts';
@@ -88,21 +90,20 @@ export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAdd
 
 const ItemTypeIcon = ({ type }: { type?: ItemType }) => {
     if (!type) return null;
-    const iconProps = { size: 14, className: "flex-shrink-0" };
     switch (type) {
         case 'veg':
-            return <span title="Veg"><Leaf {...iconProps} className="text-green-600" /></span>;
+            return <span title="Veg"><Leaf size={14} className="text-green-600 flex-shrink-0" /></span>;
         case 'egg':
-            return <span title="Egg"><Egg {...iconProps} className="text-amber-600" /></span>;
+            return <span title="Egg"><Egg size={14} className="text-amber-600 flex-shrink-0" /></span>;
         case 'chicken':
         case 'natukodi':
-            return <span title="Chicken"><Drumstick {...iconProps} className="text-orange-600" /></span>;
+            return <span title="Chicken"><Drumstick size={14} className="text-orange-600 flex-shrink-0" /></span>;
         case 'mutton':
-            return <span title="Mutton"><Beef {...iconProps} className="text-red-600" /></span>;
+            return <span title="Mutton"><Beef size={14} className="text-red-600 flex-shrink-0" /></span>;
         case 'prawns':
-            return <span title="Prawns"><Shrimp {...iconProps} className="text-pink-600" /></span>;
+            return <span title="Prawns"><Shrimp size={14} className="text-pink-600 flex-shrink-0" /></span>;
         case 'fish':
-            return <span title="Fish"><Fish {...iconProps} className="text-blue-600" /></span>;
+            return <span title="Fish"><Fish size={14} className="text-blue-600 flex-shrink-0" /></span>;
         default:
             return null;
     }
@@ -152,8 +153,10 @@ const CategoryItemGroup = ({ category, items, selectedItemIds, onToggleCategory,
                                 disabled={isReadOnly}
                                 className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                             />
-                            <ItemTypeIcon type={item.type} />
-                            <span>{item.name}</span>
+                            <div className="flex-grow flex items-center gap-2">
+                                <span>{item.name}</span>
+                                <ItemTypeIcon type={item.type} />
+                            </div>
                         </label>
                     </li>
                 ))}

@@ -120,7 +120,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onCanc
         return categories.filter(c => {
             const isRoot = c.parentId === null;
             const typeMatch = type === 'veg' ? c.type === 'veg' : true;
-            return isRoot && typeMatch;
+            return isRoot && typeMatch && !c.isStandardAccompaniment;
         }).sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
     }, [categories, type]);
     

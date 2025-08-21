@@ -23,7 +23,7 @@ import Modal from '../components/Modal';
 import { v4 as uuidv4 } from 'uuid';
 import { yyyyMMDDToDate } from '../lib/utils';
 import { MenuSummary } from '../features/menu-creator/MenuCreator';
-import { exportToExcel, exportToPdfWithOptions, exportOrderTemplateToPdf } from '../lib/export';
+import { exportToExcel, exportToPdf, exportOrderTemplateToPdf } from '../lib/export';
 import { KitchenPlanPage } from '../features/kitchen-plan/KitchenPlanPage';
 
 const AccessDenied = () => (
@@ -324,8 +324,8 @@ function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvent
     userRole: UserRole,
     managedEvents: Event[],
     clients: Client[],
-    clientListFilters: { name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string },
-    setClientListFilters: React.Dispatch<React.SetStateAction<{ name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string }>>
+    clientListFilters: { name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string },
+    setClientListFilters: React.Dispatch<React.SetStateAction<{ name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string }>>
 }) {
     // These states manage the full-page editor views
     const [editingTemplate, setEditingTemplate] = useState<MenuTemplate | null>(null);
@@ -537,16 +537,8 @@ function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvent
                     <div className="mt-4 pt-4 border-t flex justify-end gap-2">
                         <button onClick={() => {
                             const client = clients.find(c => c.id === kitchenMenuEvent.clientId);
-                            if (client) exportToPdfWithOptions(kitchenMenuEvent, client, allItems, allCategories, liveCounters, liveCounterItems, 'elegance');
-                        }} className={secondaryButton}><Palette size={16} className="text-amber-700"/> PDF (Elegance)</button>
-                        <button onClick={() => {
-                            const client = clients.find(c => c.id === kitchenMenuEvent.clientId);
-                            if (client) exportToPdfWithOptions(kitchenMenuEvent, client, allItems, allCategories, liveCounters, liveCounterItems, 'modern');
-                        }} className={secondaryButton}><Palette size={16} className="text-red-500" /> PDF (Modern)</button>
-                        <button onClick={() => {
-                            const client = clients.find(c => c.id === kitchenMenuEvent.clientId);
-                            if (client) exportToPdfWithOptions(kitchenMenuEvent, client, allItems, allCategories, liveCounters, liveCounterItems, 'vibrant');
-                        }} className={secondaryButton}><Palette size={16} className="text-green-600"/> PDF (Vibrant)</button>
+                            if (client) exportToPdf(kitchenMenuEvent, client, allItems, allCategories, liveCounters, liveCounterItems);
+                        }} className={secondaryButton}><Download size={16}/> Download PDF</button>
                         <button onClick={() => {
                              const client = clients.find(c => c.id === kitchenMenuEvent.clientId);
                              if(client) exportToExcel(kitchenMenuEvent, client, allItems, allCategories, liveCounters, liveCounterItems);

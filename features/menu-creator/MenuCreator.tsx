@@ -1,16 +1,10 @@
-
-
-
-
-
-
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, Fragment } from 'react';
 import { Event, Item, MenuTemplate, AppCategory, ItemType, LiveCounterItem, LiveCounter, Catalog, EventSession, EventState, Client } from '../../types';
 import { useItems, useTemplates, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs, useLocations } from '../../contexts/AppContexts';
 import Modal from '../../components/Modal';
 import { v4 as uuidv4 } from 'uuid';
-import { Save, X, Eye, FileText, FileSpreadsheet, MapPin, Clock, Calendar, Leaf, Beef, Loader2, AlertTriangle, Salad, ArrowLeft, ChevronDown, Palette } from 'lucide-react';
-import { exportToPdf, exportToExcel, exportToPdfWithOptions } from '../../lib/export';
+import { Save, X, Eye, FileText, FileSpreadsheet, MapPin, Clock, Calendar, Leaf, Beef, Loader2, AlertTriangle, Salad, ArrowLeft, ChevronDown, Palette, Download } from 'lucide-react';
+import { exportToPdf, exportToExcel } from '../../lib/export';
 import { deepClone } from '../../lib/utils';
 
 
@@ -23,6 +17,7 @@ interface HierarchicalItemData {
   rootCat: AppCategory;
   maxItems: number;
   currentCount: number;
+  parentItems: Item[];
   itemsByChild: Record<string, Item[]>; // Key is child cat NAME
   childCatIds: string[];
 }
@@ -215,14 +210,16 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
 
                 const descendantCatIds = getDescendantCats(rootCatId);
                 const currentCount = descendantCatIds.reduce((sum, catId) => sum + (event.itemIds[catId]?.length || 0), 0);
-                
-                const childCatIds = allCategories.filter(c => descendantCatIds.includes(c.id) && !c.parentId && c.id !== rootCatId).map(c=>c.id)
-                  .concat(allCategories.filter(c => descendantCatIds.includes(c.id) && c.parentId === rootCatId).map(c=>c.id));
 
+                const parentItems = Array.from(itemsMap.values())
+                    .filter(item => item.categoryId === rootCatId)
+                    .sort((a,b)=>(a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+                
                 const itemsByChild: Record<string, Item[]> = {};
                 descendantCatIds.forEach(catId => {
+                    if (catId === rootCatId) return; // Skip parent, handled separately
                     const childCat = catMap.get(catId);
-                    if (childCat) {
+                    if (childCat && childCat.parentId === rootCatId) { // Only direct children for sub-headers
                          const itemsForThisCat = Array.from(itemsMap.values()).filter(item => item.categoryId === catId);
                          if(itemsForThisCat.length > 0){
                            itemsByChild[childCat.name] = itemsForThisCat.sort((a,b)=>(a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
@@ -230,14 +227,117 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
                     }
                 });
 
-                return { rootCat, maxItems, currentCount, itemsByChild, childCatIds: descendantCatIds };
+                return { rootCat, maxItems, currentCount, parentItems, itemsByChild, childCatIds: descendantCatIds };
             })
-            .filter((d): d is HierarchicalItemData => !!d)
+            .filter((d): d is HierarchicalItemData => !!d);
+
+        const ruleCatIds = new Set(Object.keys(temp.rules || {}));
+        const standardAccompanimentRootCats = allCategories.filter(category =>
+            category.isStandardAccompaniment &&
+            !category.parentId &&
+            !ruleCatIds.has(category.id)
+        );
+
+        const standardAccompanimentData: HierarchicalItemData[] = standardAccompanimentRootCats
+            .map(rootCat => {
+                const descendantCatIds = getDescendantCats(rootCat.id);
+                const itemsInCategory = descendantCatIds
+                    .flatMap(catId => cat.itemIds[catId] || [])
+                    .map(id => itemsMap.get(id))
+                    .filter((i): i is Item => !!i);
+
+                if (itemsInCategory.length === 0) {
+                    return null;
+                }
+
+                const currentCount = descendantCatIds.reduce((sum, catId) => sum + (event.itemIds[catId]?.length || 0), 0);
+                
+                const parentItems = itemsInCategory.filter(item => item.categoryId === rootCat.id)
+                     .sort((a,b)=>(a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+                
+                const itemsByChild: Record<string, Item[]> = {};
+                itemsInCategory.forEach(item => {
+                    if (item.categoryId === rootCat.id) return;
+                    const childCat = catMap.get(item.categoryId);
+                    if (childCat && childCat.parentId === rootCat.id) {
+                        if (!itemsByChild[childCat.name]) {
+                            itemsByChild[childCat.name] = [];
+                        }
+                        itemsByChild[childCat.name].push(item);
+                    }
+                });
+                
+                return {
+                    rootCat,
+                    maxItems: itemsInCategory.length, 
+                    currentCount,
+                    parentItems,
+                    itemsByChild,
+                    childCatIds: descendantCatIds
+                };
+            })
+            .filter((d): d is HierarchicalItemData => !!d);
+
+        const combinedData = [...data, ...standardAccompanimentData]
             .sort((a, b) => (a.rootCat.displayRank ?? Infinity) - (b.rootCat.displayRank ?? Infinity) || a.rootCat.name.localeCompare(b.rootCat.name));
 
-        return { template: temp, catalog: cat, hierarchicalData: data, allItemsInCatalogMap: itemsMap, categoryMap: catMap };
+        return { template: temp, catalog: cat, hierarchicalData: combinedData, allItemsInCatalogMap: itemsMap, categoryMap: catMap };
     }, [event.templateId, event.itemIds, templates, catalogs, allItems, allCategories]);
     
+    useEffect(() => {
+        // This effect runs once when the catalog is loaded to ensure all standard accompaniment items are selected.
+        if (!catalog || isReadOnly || !allItemsInCatalogMap.size || !template) return;
+    
+        const newSelectedItems = deepClone(event.itemIds);
+        let needsUpdate = false;
+    
+        // Find standard accompaniment categories associated with this catalog
+        const standardRootCats = allCategories.filter(category =>
+            category.isStandardAccompaniment && !category.parentId
+        );
+        
+        // Helper to get all descendant category IDs
+        const getDescendantCats = (rootId: string): string[] => {
+            const children: string[] = [];
+            const queue = [rootId];
+            const visited = new Set([rootId]);
+            while (queue.length > 0) {
+                const currentId = queue.shift()!;
+                allCategories.forEach(c => {
+                    if (c.parentId === currentId && !visited.has(c.id)) {
+                        visited.add(c.id);
+                        children.push(c.id);
+                        queue.push(c.id);
+                    }
+                });
+            }
+            return [rootId, ...children];
+        };
+    
+        standardRootCats.forEach(rootCat => {
+            const descendantCatIds = getDescendantCats(rootCat.id);
+            const allPossibleItems = descendantCatIds
+                .flatMap(catId => catalog.itemIds[catId] || [])
+                .map(id => allItemsInCatalogMap.get(id))
+                .filter((i): i is Item => !!i);
+    
+            allPossibleItems.forEach(item => {
+                const categoryItems = newSelectedItems[item.categoryId] || [];
+                if (!categoryItems.includes(item.id)) {
+                    newSelectedItems[item.categoryId] = [...categoryItems, item.id];
+                    needsUpdate = true;
+                }
+            });
+        });
+    
+        if (needsUpdate) {
+            setEvent(prev => ({ ...prev, itemIds: newSelectedItems }));
+        }
+    // We only want this to run when the core data loads, not on every selection change.
+    // event.itemIds is intentionally omitted to prevent loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [catalog, isReadOnly, template, allItemsInCatalogMap, allCategories, initialEvent.id]);
+
     useEffect(() => {
         if (!activeRootCatId && hierarchicalData.length > 0) {
             setActiveRootCatId(hierarchicalData[0].rootCat.id);
@@ -267,15 +367,36 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
         const isSelected = categoryItems.includes(item.id);
 
         if (isSelected) {
+            // Centralized confirmation logic for standard accompaniments
+            if (rootCatInfo.rootCat.isStandardAccompaniment) {
+                if (!window.confirm("This item is part of the standard accompaniments for this menu. Are you sure you want to remove it?")) {
+                    return; // Abort removal if user cancels
+                }
+            }
+
             newSelectedItems[item.categoryId] = categoryItems.filter(id => id !== item.id);
             if (newSelectedItems[item.categoryId].length === 0) {
                 delete newSelectedItems[item.categoryId];
             }
         } else {
-            if (rootCatInfo.currentCount >= rootCatInfo.maxItems) {
+            if (rootCatInfo.currentCount >= rootCatInfo.maxItems && !rootCatInfo.rootCat.isStandardAccompaniment) {
                 alert(`You can only select up to ${rootCatInfo.maxItems} items from ${rootCatInfo.rootCat.name}.`);
                 return;
             }
+
+            // Mutton rule check
+            if (template?.muttonRules && template.muttonRules > 0 && item.type === 'mutton') {
+                const allSelectedIds = Object.values(event.itemIds).flat();
+                const currentMuttonCount = allItems
+                    .filter(i => allSelectedIds.includes(i.id) && i.type === 'mutton')
+                    .length;
+                
+                if (currentMuttonCount >= template.muttonRules) {
+                    alert(`You can select a maximum of ${template.muttonRules} mutton items in total for this menu.`);
+                    return;
+                }
+            }
+            
             newSelectedItems[item.categoryId] = [...categoryItems, item.id];
         }
 
@@ -292,6 +413,34 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
         onSave(finalEvent);
         setIsInstructionsModalOpen(false);
     };
+
+    const renderItemList = (items: Item[], rootCatInfo: HierarchicalItemData) => (
+        <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {items.map(item => {
+                const isSelected = (event.itemIds[item.categoryId] || []).includes(item.id);
+                const isMaxReached = !rootCatInfo.rootCat.isStandardAccompaniment && rootCatInfo.currentCount >= rootCatInfo.maxItems;
+                const isDisabled = isReadOnly || (isMaxReached && !isSelected);
+
+                return (
+                    <li key={item.id}>
+                        <label className={`flex items-start gap-3 p-2 rounded-md transition-colors w-full ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-primary-50 dark:hover:bg-primary-900/30'}`}>
+                            <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleItemToggle(item, rootCatInfo)}
+                                disabled={isDisabled}
+                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 mt-1 flex-shrink-0"
+                            />
+                            <div>
+                                <span className="font-semibold text-warm-gray-800 dark:text-warm-gray-200">{item.name}</span>
+                                <p className="text-xs text-warm-gray-500">{item.description}</p>
+                            </div>
+                        </label>
+                    </li>
+                );
+            })}
+        </ul>
+    );
 
     return (
         <div className="flex flex-col gap-6 h-[calc(100vh-8rem)]">
@@ -339,37 +488,19 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
                 <div className="flex-grow bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md overflow-y-auto">
                      {activeHierarchicalData && (
                         <div key={activeHierarchicalData.rootCat.id} className="space-y-4">
+                            {activeHierarchicalData.parentItems.length > 0 && (
+                                <Fragment>
+                                    {renderItemList(activeHierarchicalData.parentItems, activeHierarchicalData)}
+                                </Fragment>
+                            )}
+
                             {sortedChildCatNames.map((childCatName) => {
                                 const items = activeHierarchicalData.itemsByChild[childCatName];
                                 if (!items) return null;
                                 return (
                                     <div key={childCatName}>
-                                        <h4 className="font-bold text-warm-gray-700 dark:text-warm-gray-300">{childCatName}</h4>
-                                        <ul className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                            {items.map(item => {
-                                                const isSelected = (event.itemIds[item.categoryId] || []).includes(item.id);
-                                                const isMaxReached = activeHierarchicalData.currentCount >= activeHierarchicalData.maxItems;
-                                                const isDisabled = isReadOnly || (isMaxReached && !isSelected);
-
-                                                return (
-                                                    <li key={item.id}>
-                                                        <label className={`flex items-start gap-3 p-2 rounded-md transition-colors w-full ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-primary-50 dark:hover:bg-primary-900/30'}`}>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={isSelected}
-                                                                onChange={() => handleItemToggle(item, activeHierarchicalData)}
-                                                                disabled={isDisabled}
-                                                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 mt-1 flex-shrink-0"
-                                                            />
-                                                            <div>
-                                                                <span className="font-semibold text-warm-gray-800 dark:text-warm-gray-200">{item.name}</span>
-                                                                <p className="text-xs text-warm-gray-500">{item.description}</p>
-                                                            </div>
-                                                        </label>
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
+                                        <h4 className="font-bold text-warm-gray-700 dark:text-warm-gray-300 mt-4 pt-2 border-t">{childCatName}</h4>
+                                        {renderItemList(items, activeHierarchicalData)}
                                     </div>
                                 );
                             })}
@@ -405,9 +536,7 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
                     />
                 </div>
                  <div className="mt-4 pt-4 border-t flex justify-end gap-2">
-                    <button onClick={() => exportToPdfWithOptions(event, client, allItems, allCategories, liveCounters, liveCounterItems, 'elegance')} className={secondaryButton}><Palette size={16} className="text-amber-700"/> PDF (Elegance)</button>
-                    <button onClick={() => exportToPdfWithOptions(event, client, allItems, allCategories, liveCounters, liveCounterItems, 'modern')} className={secondaryButton}><Palette size={16} className="text-red-500" /> PDF (Modern)</button>
-                    <button onClick={() => exportToPdfWithOptions(event, client, allItems, allCategories, liveCounters, liveCounterItems, 'vibrant')} className={secondaryButton}><Palette size={16} className="text-green-600"/> PDF (Vibrant)</button>
+                    <button onClick={() => exportToPdf(event, client, allItems, allCategories, liveCounters, liveCounterItems)} className={secondaryButton}><Download size={16}/> Download PDF</button>
                     <button onClick={() => exportToExcel(event, client, allItems, allCategories, liveCounters, liveCounterItems)} className={secondaryButton}><FileSpreadsheet size={16} className="text-green-600"/> Excel</button>
                 </div>
             </Modal>
