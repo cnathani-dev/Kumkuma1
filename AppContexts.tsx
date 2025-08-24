@@ -37,9 +37,6 @@ import {
     MuhurthamDatesContextType,
     CatalogsContextType,
     FinancialSettingContextType,
-    CompetitionSettingsContextType,
-    LostReasonSettingsContextType,
-    ClientActivityTypeSettingsContextType,
 } from '../types';
 
 // --- CONTEXTS ---
@@ -303,26 +300,5 @@ export const MuhurthamDatesContext = createContext<MuhurthamDatesContextType | u
 export const useMuhurthamDates = () => {
     const context = useContext(MuhurthamDatesContext);
     if (!context) throw new Error('useMuhurthamDates must be used within a MuhurthamDatesProvider');
-    return context;
-};
-
-export const CompetitionSettingsContext = createContext<CompetitionSettingsContextType | undefined>(undefined);
-export const useCompetitionSettings = () => {
-    const context = useContext(CompetitionSettingsContext);
-    if (!context) throw new Error('useCompetitionSettings must be used within a CompetitionSettingsProvider');
-    return context;
-};
-
-export const LostReasonSettingsContext = createContext<LostReasonSettingsContextType | undefined>(undefined);
-export const useLostReasonSettings = () => {
-    const context = useContext(LostReasonSettingsContext);
-    if (!context) throw new Error('useLostReasonSettings must be used within a LostReasonSettingsProvider');
-    return context;
-};
-
-export const ClientActivityTypeSettingsContext = createContext<ClientActivityTypeSettingsContextType | undefined>(undefined);
-export const useClientActivityTypeSettings = () => {
-    const context = useContext(ClientActivityTypeSettingsContext);
-    if (!context) throw new Error('useClientActivityTypeSettings must be used within a ClientActivityTypeSettingsProvider');
     return context;
 };

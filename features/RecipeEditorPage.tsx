@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Recipe, RecipeRawMaterial, RawMaterial, RecipeConversion } from '../types';
 import { useRawMaterials, useUnits } from '../contexts/AppContexts';
-import { primaryButton, secondaryButton, inputStyle } from '../components/common/styles';
+import { primaryButton, secondaryButton, inputStyle, iconButton } from '../components/common/styles';
 import { Save, ArrowLeft, Plus, Trash2, Scale } from 'lucide-react';
 
 const NewRawMaterialModal = ({ onClose, onRawMaterialAdded }: { onClose: () => void, onRawMaterialAdded: (newRawMaterial: RawMaterial) => void }) => {
@@ -264,13 +264,15 @@ export const RecipeEditorPage = ({ recipe: initialRecipe, onSave, onBack }: {
             {isNewRawMaterialModalOpen && <NewRawMaterialModal onClose={() => setIsNewRawMaterialModalOpen(false)} onRawMaterialAdded={handleNewRawMaterialAdded} />}
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700">
-                    <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                        {initialRecipe ? "Edit Recipe" : "Create New Recipe"}
-                    </h2>
-                    <div className="flex items-center gap-2">
-                        <button type="button" onClick={handleBack} className={secondaryButton}>
-                            <ArrowLeft size={16}/> Back
+                    <div className="flex items-center gap-4">
+                        <button type="button" onClick={handleBack} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}>
+                            <ArrowLeft size={20}/>
                         </button>
+                        <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                            {initialRecipe ? "Edit Recipe" : "Create New Recipe"}
+                        </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
                         <button type="submit" className={primaryButton}>
                             <Save size={18} /> Save Recipe
                         </button>

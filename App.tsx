@@ -1,7 +1,8 @@
 
 
+
 import React, { useState, createContext, useContext, ReactNode, useMemo, useEffect, useRef, ReactElement } from 'react';
-import { Item, MenuTemplate, User, AppCategory, ItemType, Event, Client, LiveCounter, LiveCounterItem, AuditLog, Catalog, FinancialSetting, LocationSetting, Role, AppPermissions, PermissionLevel, EventState, ServiceArticle, ItemAccompaniment, ItemsContextType, ItemAccompanimentsContextType, AppCategoriesContextType, EventsContextType, EventTypeSetting, StateChangeHistoryEntry, RawMaterial, Recipe, RecipeRawMaterial, RawMaterialsContextType, RecipesContextType, RestaurantSetting, RestaurantsContextType, Order, OrdersContextType, OrderTemplate, OrderTemplatesContextType, FinancialSettingContextType, Platter, PlattersContextType, Activity, ClientTask, ActivitiesContextType, ClientTasksContextType, MuhurthamDate, MuhurthamDatesContextType } from './types';
+import { Item, MenuTemplate, User, AppCategory, ItemType, Event, Client, LiveCounter, LiveCounterItem, AuditLog, Catalog, FinancialSetting, LocationSetting, Role, AppPermissions, PermissionLevel, EventState, ServiceArticle, ItemAccompaniment, ItemsContextType, ItemAccompanimentsContextType, AppCategoriesContextType, EventsContextType, EventTypeSetting, StateChangeHistoryEntry, RawMaterial, Recipe, RecipeRawMaterial, RawMaterialsContextType, RecipesContextType, RestaurantSetting, RestaurantsContextType, Order, OrdersContextType, OrderTemplate, OrderTemplatesContextType, FinancialSettingContextType, Platter, PlattersContextType, ClientActivity, ClientTask, ClientActivitiesContextType, ClientTasksContextType, MuhurthamDate, MuhurthamDatesContextType, CatalogsContextType, ServiceArticlesContextType, Transaction, Charge, CompetitionSetting, LostReasonSetting, LostReasonSettingsContextType, ClientActivityTypeSetting, ClientActivityTypeSettingsContextType } from './types';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
 import { ClientDetailsPage, MyTasksModal } from './pages/ClientDetailsPage';
@@ -38,8 +39,11 @@ import {
     AppCategoriesContext, TemplatesContext, UsersContext, ChargeTypesContext,
     ExpenseTypesContext, PaymentModesContext, ReferralSourcesContext, ServiceArticlesContext,
     ItemAccompanimentsContext, UnitsContext, EventTypesContext, LocationsContext,
-    RawMaterialsContext, RecipesContext, useEvents, useClients, RestaurantsContext, OrdersContext, OrderTemplatesContext, PlattersContext, ActivitiesContext, ClientTasksContext,
-    MuhurthamDatesContext
+    RawMaterialsContext, RecipesContext, useEvents, useClients, RestaurantsContext, OrdersContext, OrderTemplatesContext, PlattersContext, ClientActivitiesContext, ClientTasksContext,
+    MuhurthamDatesContext,
+    CompetitionSettingsContext,
+    LostReasonSettingsContext,
+    ClientActivityTypeSettingsContext
 } from './contexts/AppContexts';
 import { secondaryButton } from './components/common/styles';
 
@@ -53,16 +57,25 @@ const INITIAL_FINANCIAL_SETTINGS = {
     chargeTypes: ['Transportation', 'Additional Staff', 'Breakage', 'Special Request', 'Additional PAX'],
     expenseTypes: ['Groceries', 'Staff Payment', 'Rent', 'Utilities'],
     paymentModes: ['Cash', 'UPI', 'Bank Transfer', 'Credit Card'],
-    referralSources: ['Google', 'Word of Mouth', 'Existing Client', 'Vendor'],
+    referralSources: ['Google', 'Word of Mouth', 'Existing Client', 'Vendor', 'Walk-In', 'Phone Enquiry'],
     units: ['kg', 'grams', 'litres', 'ml', 'pieces', 'bunch', 'packet', 'portion'],
     eventTypes: ['Wedding', 'Birthday Party', 'Corporate Event', 'Private Gathering'],
     serviceArticles: ['Chafing Dish', 'Serving Spoon', 'Water Dispenser', 'Salad Bowl'],
 };
 
+const INITIAL_ACTIVITY_TYPES = [
+    { name: 'Phone Call', icon: 'Phone' },
+    { name: 'Meeting', icon: 'Users' },
+    { name: 'Site Visit', icon: 'MapPin' },
+    { name: 'Follow-up', icon: 'ClipboardCheck' },
+    { name: 'Quote Sent', icon: 'Mail' },
+    { name: 'General Note', icon: 'StickyNote' },
+];
+
 // --- DATA PROVIDERS ---
 const AppProviders = ({ children }: { children: ReactNode }) => {
     // This component will now contain ALL data-related state and logic.
-    // Each section is a separate data domain (e.g., items, categories).
+    const { currentUser } = useAuth();
 
     // --- STATE ---
     const [items, setItems] = useState<Item[]>([]);
@@ -91,9 +104,12 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [orderTemplates, setOrderTemplates] = useState<OrderTemplate[]>([]);
     const [platters, setPlatters] = useState<Platter[]>([]);
-    const [activities, setActivities] = useState<Activity[]>([]);
+    const [clientActivities, setClientActivities] = useState<ClientActivity[]>([]);
     const [clientTasks, setClientTasks] = useState<ClientTask[]>([]);
     const [muhurthamDates, setMuhurthamDates] = useState<MuhurthamDate[]>([]);
+    const [competitionSettings, setCompetitionSettings] = useState<CompetitionSetting[]>([]);
+    const [lostReasonSettings, setLostReasonSettings] = useState<LostReasonSetting[]>([]);
+    const [clientActivityTypes, setClientActivityTypes] = useState<ClientActivityTypeSetting[]>([]);
 
 
     // --- EFFECTS for Firestore subscriptions ---
@@ -125,9 +141,12 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
             orders: setOrders,
             orderTemplates: setOrderTemplates,
             platters: setPlatters,
-            activities: setActivities,
+            clientActivities: setClientActivities,
             clientTasks: setClientTasks,
             muhurthamDates: setMuhurthamDates,
+            competition: setCompetitionSettings,
+            lostReasons: setLostReasonSettings,
+            clientActivityTypes: setClientActivityTypes,
         };
 
         const unsubs = Object.entries(collectionsToWatch).map(([name, setter]) => {
@@ -151,8 +170,103 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
             }
         });
 
+        const seedActivityTypes = async () => {
+            const activityTypesRef = collection(db, 'clientActivityTypes');
+            const activitySnapshot = await getDocs(activityTypesRef);
+            if (activitySnapshot.empty) {
+                const batch = writeBatch(db);
+                INITIAL_ACTIVITY_TYPES.forEach(type => {
+                    const docRef = doc(activityTypesRef);
+                    batch.set(docRef, type);
+                });
+                await batch.commit();
+            }
+        };
+        seedActivityTypes();
+
+
         return () => unsubs.forEach(unsub => unsub());
     }, []);
+    
+    // --- Centralized Data Filtering for Role-Based Access ---
+    const managedEvents = useMemo(() => {
+        if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'kitchen' || !currentUser.managedLocationIds || currentUser.managedLocationIds.length === 0) {
+            return events;
+        }
+        const locationIdToNameMap = new Map(locations.map(l => [l.id, l.name]));
+        const managedLocationNames = (currentUser.managedLocationIds || []).map(id => locationIdToNameMap.get(id)).filter(Boolean) as string[];
+
+        return events.filter(e => managedLocationNames.includes(e.location));
+    }, [currentUser, events, locations]);
+
+    const managedClients = useMemo(() => {
+        if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'kitchen' || !currentUser.managedLocationIds || currentUser.managedLocationIds.length === 0) {
+            return clients;
+        }
+        const visibleClientIds = new Set(managedEvents.map(e => e.clientId));
+        return clients.filter(c => visibleClientIds.has(c.id));
+    }, [currentUser, clients, managedEvents]);
+
+    const managedTemplates = useMemo(() => {
+        if (!currentUser || currentUser.role === 'admin' || currentUser.role === 'kitchen' || !currentUser.managedLocationIds || currentUser.managedLocationIds.length === 0) {
+            return templates;
+        }
+        const userLocationIds = new Set(currentUser.managedLocationIds);
+        return templates.filter(t => 
+            !t.locationIds || t.locationIds.length === 0 || t.locationIds.some(locId => userLocationIds.has(locId))
+        );
+    }, [currentUser, templates]);
+
+    // --- Category Type Inheritance Logic ---
+    const categoriesWithInheritance = useMemo(() => {
+        if (!categories.length) return [];
+
+        const categoryMap = new Map(categories.map(c => [c.id, { ...c }]));
+        const effectiveTypeMap = new Map<string, 'veg' | 'non-veg' | null>();
+
+        function determineType(categoryId: string): 'veg' | 'non-veg' | null {
+            // Check memoized results first
+            if (effectiveTypeMap.has(categoryId)) {
+                return effectiveTypeMap.get(categoryId)!;
+            }
+
+            const category = categoryMap.get(categoryId);
+            if (!category) {
+                return null;
+            }
+
+            // If it has a parent, recursively find the parent's effective type.
+            if (category.parentId) {
+                const parentType = determineType(category.parentId);
+                // If parent has a type, child inherits it.
+                if (parentType) {
+                    effectiveTypeMap.set(categoryId, parentType);
+                    return parentType;
+                }
+            }
+            
+            // If no parent with a type, use its own type.
+            const ownType = category.type || null;
+            effectiveTypeMap.set(categoryId, ownType);
+            return ownType;
+        }
+
+        // Populate the map for all categories
+        for (const category of categories) {
+            determineType(category.id);
+        }
+
+        // Create the new array with inherited types
+        return categories.map(c => {
+            const effectiveType = effectiveTypeMap.get(c.id);
+            // Return a new object only if the type changes to avoid unnecessary re-renders
+            if (effectiveType !== undefined && c.type !== effectiveType) {
+                return { ...c, type: effectiveType };
+            }
+            return c;
+        });
+
+    }, [categories]);
 
     // --- CRUD FUNCTIONS ---
     
@@ -237,6 +351,125 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     const deleteAllClients = async () => { console.warn("deleteAllClients not implemented") };
     const addSampleData = async () => { console.warn("addSampleData not implemented") };
     const deleteSampleData = async () => { console.warn("deleteSampleData not implemented") };
+
+    const createGenericMergeSettings = (
+        collectionName: string,
+        targetCollectionName: string,
+        targetFieldMapper: (docData: any, sourceNames: string[], destName: string) => any | null,
+        settings: (FinancialSetting | EventTypeSetting | ServiceArticle)[]
+    ) => {
+        return async (sourceIds: string[], destId: string) => {
+            const batch = writeBatch(db);
+
+            const destSetting = settings.find(s => s.id === destId);
+            if (!destSetting) throw new Error("Destination setting not found.");
+
+            const sourceSettings = settings.filter(s => sourceIds.includes(s.id));
+            if (sourceSettings.length === 0) return;
+            const sourceNames = sourceSettings.map(s => s.name);
+
+            const targetCollectionRef = collection(db, targetCollectionName);
+            const targetDocsSnapshot = await getDocs(targetCollectionRef);
+
+            targetDocsSnapshot.forEach(docSnapshot => {
+                const docData = docSnapshot.data();
+                const updatedData = targetFieldMapper(docData, sourceNames, destSetting.name);
+                if (updatedData) {
+                    batch.update(docSnapshot.ref, updatedData);
+                }
+            });
+
+            sourceIds.forEach(id => {
+                if (id !== destId) {
+                    batch.delete(doc(db, collectionName, id));
+                }
+            });
+
+            await batch.commit();
+        };
+    };
+
+    const mergeChargeTypes = createGenericMergeSettings('chargeTypes', 'events', (eventData, sourceNames, destName) => {
+        if (!eventData.charges || eventData.charges.length === 0) return null;
+        let wasModified = false;
+        const newCharges = eventData.charges.map((c: Charge) => {
+            if (c.type && sourceNames.includes(c.type)) {
+                wasModified = true;
+                return { ...c, type: destName };
+            }
+            return c;
+        });
+        return wasModified ? { charges: newCharges } : null;
+    }, chargeTypes);
+
+    const mergePaymentModes = createGenericMergeSettings('paymentModes', 'events', (eventData, sourceNames, destName) => {
+        if (!eventData.transactions || eventData.transactions.length === 0) return null;
+        let wasModified = false;
+        const newTransactions = eventData.transactions.map((t: Transaction) => {
+            if (t.paymentMode && sourceNames.includes(t.paymentMode)) {
+                wasModified = true;
+                return { ...t, paymentMode: destName };
+            }
+            return t;
+        });
+        return wasModified ? { transactions: newTransactions } : null;
+    }, paymentModes);
+
+    const mergeEventTypes = createGenericMergeSettings('eventTypes', 'events', (eventData, sourceNames, destName) => {
+        if (eventData.eventType && sourceNames.includes(eventData.eventType)) {
+            return { eventType: destName };
+        }
+        return null;
+    }, eventTypes);
+
+    const mergeReferralSources = createGenericMergeSettings('referralSources', 'clients', (clientData, sourceNames, destName) => {
+        if (clientData.referredBy && sourceNames.includes(clientData.referredBy)) {
+            return { referredBy: destName };
+        }
+        return null;
+    }, referralSources);
+
+    const mergeExpenseTypes = createGenericMergeSettings('expenseTypes', 'events', (eventData, sourceNames, destName) => {
+        if (!eventData.transactions || eventData.transactions.length === 0) return null;
+        let wasModified = false;
+        const newTransactions = eventData.transactions.map((t: Transaction) => {
+            if (t.type === 'expense' && t.category && sourceNames.includes(t.category)) {
+                wasModified = true;
+                return { ...t, category: destName };
+            }
+            return t;
+        });
+        return wasModified ? { transactions: newTransactions } : null;
+    }, expenseTypes);
+
+    const mergeServiceArticles = async (sourceIds: string[], destId: string) => {
+        const batch = writeBatch(db);
+        const itemsToUpdateQuery = query(collection(db, 'items'), where('serviceArticleIds', 'array-contains-any', sourceIds));
+        const itemsSnapshot = await getDocs(itemsToUpdateQuery);
+        
+        itemsSnapshot.forEach(itemDoc => {
+            const itemData = itemDoc.data() as Item;
+            const existingIds = new Set(itemData.serviceArticleIds || []);
+            let needsUpdate = false;
+            sourceIds.forEach(sourceId => {
+                if (existingIds.has(sourceId)) {
+                    existingIds.delete(sourceId);
+                    needsUpdate = true;
+                }
+            });
+            if (needsUpdate) {
+                existingIds.add(destId);
+                batch.update(itemDoc.ref, { serviceArticleIds: Array.from(existingIds) });
+            }
+        });
+
+        sourceIds.forEach(id => {
+            if (id !== destId) {
+                batch.delete(doc(db, 'serviceArticles', id));
+            }
+        });
+        await batch.commit();
+    };
 
 
     const addRawMaterial = async (rawMaterial: Omit<RawMaterial, 'id'>): Promise<string> => {
@@ -488,6 +721,24 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     const deleteOrderTemplate = async (id: string) => {
         await deleteDoc(doc(db, 'orderTemplates', id));
     };
+    const updateOrderTemplateGroup = async (oldGroup: string, newGroup: string) => {
+        const batch = writeBatch(db);
+        const templatesToUpdate = orderTemplates.filter(t => t.group === oldGroup);
+        templatesToUpdate.forEach(t => {
+            const docRef = doc(db, 'orderTemplates', t.id);
+            batch.update(docRef, { group: newGroup });
+        });
+        await batch.commit();
+    };
+    const updateTemplateGroup = async (oldGroup: string, newGroup: string) => {
+        const batch = writeBatch(db);
+        const templatesToUpdate = templates.filter(t => t.group === oldGroup);
+        templatesToUpdate.forEach(t => {
+            const docRef = doc(db, 'templates', t.id);
+            batch.update(docRef, { group: newGroup });
+        });
+        await batch.commit();
+    };
 
     const addPlatter = async (platter: Omit<Platter, 'id'>) => {
         await addDoc(collection(db, 'platters'), cleanForFirebase(platter));
@@ -499,15 +750,12 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         await deleteDoc(doc(db, 'platters', id));
     };
 
-    const addActivity = async (activity: Omit<Activity, 'id'>): Promise<string> => {
-        const docRef = await addDoc(collection(db, 'activities'), cleanForFirebase(activity));
+    const addActivity = async (activity: Omit<ClientActivity, 'id'>): Promise<string> => {
+        const docRef = await addDoc(collection(db, 'clientActivities'), cleanForFirebase(activity));
         return docRef.id;
     };
-    const updateActivity = async (activity: Activity) => {
-        await updateDoc(doc(db, 'activities', activity.id), cleanForFirebase(activity));
-    };
     const deleteActivity = async (id: string) => {
-        await deleteDoc(doc(db, 'activities', id));
+        await deleteDoc(doc(db, 'clientActivities', id));
     };
 
     const addTask = async (task: Omit<ClientTask, 'id'>): Promise<string> => {
@@ -568,8 +816,38 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         };
     };
 
+    const addLostReasonSetting = async (setting: Omit<LostReasonSetting, 'id'>) => {
+        if (setting.isCompetitionReason) {
+            const competitionReasons = lostReasonSettings.filter(s => s.isCompetitionReason);
+            if (competitionReasons.length > 0) {
+                const batch = writeBatch(db);
+                competitionReasons.forEach(cr => {
+                    const docRef = doc(db, 'lostReasons', cr.id);
+                    batch.update(docRef, { isCompetitionReason: false });
+                });
+                await batch.commit();
+            }
+        }
+        await addDoc(collection(db, 'lostReasons'), cleanForFirebase(setting));
+    };
+    const updateLostReasonSetting = async (setting: LostReasonSetting) => {
+        if (setting.isCompetitionReason) {
+            const competitionReasons = lostReasonSettings.filter(s => s.isCompetitionReason && s.id !== setting.id);
+            if (competitionReasons.length > 0) {
+                const batch = writeBatch(db);
+                competitionReasons.forEach(cr => {
+                    const docRef = doc(db, 'lostReasons', cr.id);
+                    batch.update(docRef, { isCompetitionReason: false });
+                });
+                await batch.commit();
+            }
+        }
+        await updateDoc(doc(db, 'lostReasons', setting.id), cleanForFirebase(setting));
+    };
+    const deleteLostReasonSetting = async (id: string) => { await deleteDoc(doc(db, 'lostReasons', id)); };
+
     const { addEvent, updateEvent, deleteEvent, deleteAllEvents, duplicateEvent, importClientsAndEvents } = useMemo(() => {
-        const addEvent = async (event: Omit<Event, 'id'>) => {
+        const addEvent = async (event: Omit<Event, 'id'>): Promise<string> => {
              const docRef = await addDoc(collection(db, 'events'), cleanForFirebase(event));
              return docRef.id;
         };
@@ -580,11 +858,65 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
              await deleteDoc(doc(db, 'events', event.id));
         };
         const deleteAllEvents = async () => { console.warn("deleteAllEvents not implemented") };
-        const duplicateEvent = async (event: Event) => { console.warn("duplicateEvent not implemented") };
+        const duplicateEvent = async (event: Event) => {
+            const { 
+                id, 
+                state, 
+                stateHistory, 
+                createdAt, 
+                history, 
+                charges, 
+                transactions, 
+                // Destructure menu items to exclude them
+                itemIds,
+                liveCounters,
+                cocktailMenuItems,
+                hiTeaMenuItems,
+                ...restOfEvent 
+            } = event;
+    
+            const newEventData: Omit<Event, 'id'> = {
+                ...restOfEvent,
+                state: 'lead',
+                status: 'draft',
+                createdAt: new Date().toISOString(),
+                stateHistory: [],
+                history: [],
+                charges: [],
+                transactions: [],
+                // Explicitly clear all menu selections
+                itemIds: {},
+                liveCounters: {},
+                cocktailMenuItems: {},
+                hiTeaMenuItems: {},
+            };
+            
+            // Re-populate with standard accompaniments if a template is chosen
+            if (newEventData.templateId && newEventData.templateId !== 'NO_FOOD') {
+                const selectedTemplate = templates.find(t => t.id === newEventData.templateId);
+                const selectedCatalog = selectedTemplate ? catalogs.find(c => c.id === selectedTemplate.catalogId) : null;
+    
+                if (selectedCatalog) {
+                    const standardAccompanimentCategories = categoriesWithInheritance.filter(c => c.isStandardAccompaniment);
+                    const standardCategoryIds = new Set(standardAccompanimentCategories.map(c => c.id));
+                    
+                    const newItemIds: Record<string, string[]> = {};
+    
+                    for (const catId in selectedCatalog.itemIds) {
+                        if (standardCategoryIds.has(catId)) {
+                            newItemIds[catId] = [...(selectedCatalog.itemIds[catId] || [])];
+                        }
+                    }
+                    newEventData.itemIds = newItemIds;
+                }
+            }
+
+            await addEvent(newEventData);
+        };
         const importClientsAndEvents = async (data: any[]) => { return 0; /* ... */ };
         
         return { addEvent, updateEvent, deleteEvent, deleteAllEvents, duplicateEvent, importClientsAndEvents };
-    }, []);
+    }, [templates, catalogs, categoriesWithInheritance]);
 
     const addCategory = async (category: Omit<AppCategory, 'id'>): Promise<string> => {
         const docRef = await addDoc(collection(db, 'categories'), cleanForFirebase(category));
@@ -658,9 +990,21 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         await batch.commit();
     };
 
-    const addCatalog = async (cat: Omit<Catalog, 'id'>) => { await addDoc(collection(db, 'catalogs'), cleanForFirebase(cat)); };
+    const addCatalog = async (cat: Omit<Catalog, 'id'>): Promise<string> => {
+        const docRef = await addDoc(collection(db, 'catalogs'), cleanForFirebase(cat));
+        return docRef.id;
+    };
     const updateCatalog = async (cat: Catalog) => { await updateDoc(doc(db, 'catalogs', cat.id), cleanForFirebase(cat)); };
     const deleteCatalog = async (id: string) => { await deleteDoc(doc(db, 'catalogs', id)); };
+    const updateCatalogGroup = async (oldGroup: string, newGroup: string) => {
+        const batch = writeBatch(db);
+        const catalogsToUpdate = catalogs.filter(c => c.group === oldGroup);
+        catalogsToUpdate.forEach(c => {
+            const docRef = doc(db, 'catalogs', c.id);
+            batch.update(docRef, { group: newGroup });
+        });
+        await batch.commit();
+    };
 
     const addTemplate = async (tmpl: Omit<MenuTemplate, 'id'>) => { await addDoc(collection(db, 'templates'), cleanForFirebase(tmpl)); };
     const updateTemplate = async (tmpl: MenuTemplate) => { await updateDoc(doc(db, 'templates', tmpl.id), cleanForFirebase(tmpl)); };
@@ -787,16 +1131,16 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
     const recipesContextValue: RecipesContextType = { recipes, addRecipe, updateRecipe, deleteRecipe, addMultipleRecipes, deleteAllRecipes };
     const restaurantsContextValue: RestaurantsContextType = { restaurants, addRestaurant, updateRestaurant, deleteRestaurant };
     const ordersContextValue: OrdersContextType = { orders, addOrder, updateOrder, deleteOrder };
-    const orderTemplatesContextValue: OrderTemplatesContextType = { orderTemplates, addOrderTemplate, updateOrderTemplate, deleteOrderTemplate };
+    const orderTemplatesContextValue = { orderTemplates, addOrderTemplate, updateOrderTemplate, deleteOrderTemplate, updateTemplateGroup: updateOrderTemplateGroup };
     const plattersContextValue: PlattersContextType = { platters, addPlatter, updatePlatter, deletePlatter };
-    const eventsContextValue: EventsContextType = { events, addEvent, updateEvent, deleteEvent, deleteAllEvents, duplicateEvent, importClientsAndEvents };
-    const clientsContextValue = { clients, addClient, updateClient, deleteClient, deleteAllClients, addSampleData, deleteSampleData };
+    const eventsContextValue: EventsContextType = { events: managedEvents, addEvent, updateEvent, deleteEvent, deleteAllEvents, duplicateEvent, importClientsAndEvents };
+    const clientsContextValue = { clients: managedClients, addClient, updateClient, deleteClient, deleteAllClients, addSampleData, deleteSampleData };
     const usersContextValue = { users, addUser, updateUser, deleteUser };
     const rolesContextValue = { roles, addRole, updateRole, deleteRole };
-    const categoriesContextValue = { categories, addCategory, updateCategory, deleteCategory, updateMultipleCategories, mergeCategory, addMultipleCategories: (d:any) => Promise.resolve(0), deleteAllCategories: () => Promise.resolve() };
+    const categoriesContextValue = { categories: categoriesWithInheritance, addCategory, updateCategory, deleteCategory, updateMultipleCategories, mergeCategory, addMultipleCategories: (d:any) => Promise.resolve(0), deleteAllCategories: () => Promise.resolve() };
     const itemsContextValue: ItemsContextType = { items, addItem, updateItem, deleteItem, deleteMultipleItems, moveMultipleItems, updateMultipleItems, batchUpdateServiceArticles, batchUpdateAccompaniments, addMultipleItems: (d:any) => Promise.resolve(0), deleteAllItems: () => Promise.resolve(), batchUpdateItemType, batchUpdateItemNames };
-    const catalogsContextValue = { catalogs, addCatalog, updateCatalog, deleteCatalog, deleteAllCatalogs: () => Promise.resolve(), addMultipleCatalogs: (d:any) => Promise.resolve() };
-    const templatesContextValue = { templates, addTemplate, updateTemplate, deleteTemplate, deleteAllTemplates: () => Promise.resolve() };
+    const catalogsContextValue: CatalogsContextType = { catalogs, addCatalog, updateCatalog, deleteCatalog, deleteAllCatalogs: () => Promise.resolve(), addMultipleCatalogs: (d:any) => Promise.resolve(0), updateCatalogGroup };
+    const templatesContextValue = { templates: managedTemplates, addTemplate, updateTemplate, deleteTemplate, deleteAllTemplates: () => Promise.resolve(), updateTemplateGroup };
     const liveCountersContextValue = { liveCounters, addLiveCounter, updateLiveCounter, deleteLiveCounter, updateMultipleLiveCounters, addMultipleLiveCounters: (d:any) => Promise.resolve(new Map()), deleteAllLiveCountersAndItems: () => Promise.resolve() };
     const liveCounterItemsContextValue = { liveCounterItems, addLiveCounterItem, updateLiveCounterItem, deleteLiveCounterItem, updateMultipleLiveCounterItems, addMultipleLiveCounterItems: (d:any) => Promise.resolve() };
     const locationsContextValue = { locations, addLocation, updateLocation, deleteLocation, updateMultipleLocations };
@@ -806,9 +1150,24 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
         ...createFinancialSettingHooks('units'),
         mergeSettings: mergeUnits,
     };
-    const activitiesContextValue: ActivitiesContextType = { activities, addActivity, updateActivity, deleteActivity };
+    const clientActivitiesContextValue: ClientActivitiesContextType = { activities: clientActivities, addActivity, deleteActivity };
     const clientTasksContextValue: ClientTasksContextType = { tasks: clientTasks, addTask, updateTask, deleteTask };
     const muhurthamDatesContextValue: MuhurthamDatesContextType = { muhurthamDates, addMuhurthamDate, deleteMuhurthamDateByDate, importMuhurthamDates, deleteAllMuhurthamDates };
+    const competitionSettingsContextValue = { settings: competitionSettings, ...createFinancialSettingHooks('competition') };
+    const lostReasonSettingsContextValue: LostReasonSettingsContextType = { settings: lostReasonSettings, addSetting: addLostReasonSetting, updateSetting: updateLostReasonSetting, deleteSetting: deleteLostReasonSetting };
+    const clientActivityTypeSettingsContextValue: ClientActivityTypeSettingsContextType = { 
+        settings: clientActivityTypes, 
+        addSetting: async (setting) => { await addDoc(collection(db, 'clientActivityTypes'), cleanForFirebase(setting)); },
+        updateSetting: async (setting) => { await updateDoc(doc(db, 'clientActivityTypes', setting.id), cleanForFirebase(setting)); },
+        deleteSetting: async (id) => { await deleteDoc(doc(db, 'clientActivityTypes', id)); },
+    };
+
+    const eventTypesContextValue = { settings: eventTypes, ...createFinancialSettingHooks('eventTypes'), mergeSettings: mergeEventTypes };
+    const chargeTypesContextValue: FinancialSettingContextType = { settings: chargeTypes, ...createFinancialSettingHooks('chargeTypes'), mergeSettings: mergeChargeTypes };
+    const expenseTypesContextValue: FinancialSettingContextType = { settings: expenseTypes, ...createFinancialSettingHooks('expenseTypes'), mergeSettings: mergeExpenseTypes };
+    const paymentModesContextValue: FinancialSettingContextType = { settings: paymentModes, ...createFinancialSettingHooks('paymentModes'), mergeSettings: mergePaymentModes };
+    const referralSourcesContextValue: FinancialSettingContextType = { settings: referralSources, ...createFinancialSettingHooks('referralSources'), mergeSettings: mergeReferralSources };
+    const serviceArticlesContextValue: ServiceArticlesContextType = { settings: serviceArticles, ...createFinancialSettingHooks('serviceArticles'), mergeSettings: mergeServiceArticles };
 
 
     return (
@@ -824,12 +1183,12 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
                                             <LiveCountersContext.Provider value={liveCountersContextValue}>
                                                 <LiveCounterItemsContext.Provider value={liveCounterItemsContextValue}>
                                                     <LocationsContext.Provider value={locationsContextValue}>
-                                                        <EventTypesContext.Provider value={{ settings: eventTypes, ...createFinancialSettingHooks('eventTypes') }}>
-                                                            <ChargeTypesContext.Provider value={{ settings: chargeTypes, ...createFinancialSettingHooks('chargeTypes') }}>
-                                                                <ExpenseTypesContext.Provider value={{ settings: expenseTypes, ...createFinancialSettingHooks('expenseTypes') }}>
-                                                                    <PaymentModesContext.Provider value={{ settings: paymentModes, ...createFinancialSettingHooks('paymentModes') }}>
-                                                                        <ReferralSourcesContext.Provider value={{ settings: referralSources, ...createFinancialSettingHooks('referralSources') }}>
-                                                                            <ServiceArticlesContext.Provider value={{ settings: serviceArticles, ...createFinancialSettingHooks('serviceArticles') }}>
+                                                        <EventTypesContext.Provider value={eventTypesContextValue}>
+                                                            <ChargeTypesContext.Provider value={chargeTypesContextValue}>
+                                                                <ExpenseTypesContext.Provider value={expenseTypesContextValue}>
+                                                                    <PaymentModesContext.Provider value={paymentModesContextValue}>
+                                                                        <ReferralSourcesContext.Provider value={referralSourcesContextValue}>
+                                                                            <ServiceArticlesContext.Provider value={serviceArticlesContextValue}>
                                                                                 <ItemAccompanimentsContext.Provider value={itemAccompanimentsContextValue}>
                                                                                     <UnitsContext.Provider value={unitsContextValue}>
                                                                                         <RawMaterialsContext.Provider value={rawMaterialsContextValue}>
@@ -838,13 +1197,19 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
                                                                                                     <OrdersContext.Provider value={ordersContextValue}>
                                                                                                         <OrderTemplatesContext.Provider value={orderTemplatesContextValue}>
                                                                                                             <PlattersContext.Provider value={plattersContextValue}>
-                                                                                                                <ActivitiesContext.Provider value={activitiesContextValue}>
+                                                                                                                <ClientActivitiesContext.Provider value={clientActivitiesContextValue}>
                                                                                                                     <ClientTasksContext.Provider value={clientTasksContextValue}>
                                                                                                                         <MuhurthamDatesContext.Provider value={muhurthamDatesContextValue}>
-                                                                                                                            {children}
+                                                                                                                            <CompetitionSettingsContext.Provider value={competitionSettingsContextValue}>
+                                                                                                                                <LostReasonSettingsContext.Provider value={lostReasonSettingsContextValue}>
+                                                                                                                                    <ClientActivityTypeSettingsContext.Provider value={clientActivityTypeSettingsContextValue}>
+                                                                                                                                        {children}
+                                                                                                                                    </ClientActivityTypeSettingsContext.Provider>
+                                                                                                                                </LostReasonSettingsContext.Provider>
+                                                                                                                            </CompetitionSettingsContext.Provider>
                                                                                                                         </MuhurthamDatesContext.Provider>
                                                                                                                     </ClientTasksContext.Provider>
-                                                                                                                </ActivitiesContext.Provider>
+                                                                                                                </ClientActivitiesContext.Provider>
                                                                                                             </PlattersContext.Provider>
                                                                                                         </OrderTemplatesContext.Provider>
                                                                                                     </OrdersContext.Provider>
@@ -878,39 +1243,85 @@ const AppProviders = ({ children }: { children: ReactNode }) => {
 function App() {
     const { currentUser, logout, isInitializing } = useAuth();
     const permissions = useUserPermissions();
-
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     type PageName = 'dashboard' | 'clients' | 'itemBank' | 'catalogs' | 'templates' | 'liveCounters' | 'reports' | 'users' | 'audit' | 'dataHub' | 'settings' | 'orders' | 'orderTemplates' | 'platters' | 'recipes' | 'rawMaterials';
+    
+    // History stack to remember navigation state
+    type DashboardState = {
+        view: 'grid' | 'calendar';
+        dateFilter: string | null;
+        activeFilter: 'upcoming' | 'leads' | 'finalize' | 'collect' | null;
+        selectedLocations: string[];
+    };
+    
+    type ClientListFiltersState = {
+        name: string; phone: string; status: 'active' | 'inactive' | 'all';
+        eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled';
+        tasks: 'all' | 'overdue'; startDate: string; endDate: string;
+        creationStartDate: string; creationEndDate: string; referredBy: string;
+        stateChangeFilters: { state: EventState, period: 'this_week' } | null;
+    };
+
+    type HistoryState = {
+        page: PageName;
+        dashboardState: DashboardState;
+        clientListFilters: ClientListFiltersState;
+    };
+
+    const [history, setHistory] = useState<HistoryState[]>([]);
+
     const [page, setPage] = useState<PageName>('dashboard');
     const [clientId, setClientId] = useState<string | null>(null);
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
     const [isMyTasksModalOpen, setIsMyTasksModalOpen] = useState(false);
     
+    // Lifted state
+    const [dashboardState, setDashboardState] = useState<DashboardState>({
+        view: 'calendar',
+        dateFilter: null,
+        activeFilter: 'upcoming',
+        selectedLocations: [],
+    });
+    
+    const [clientListFilters, setClientListFilters] = useState<ClientListFiltersState>({
+        name: '', phone: '', status: 'active', eventState: 'all',
+        tasks: 'all', startDate: '', endDate: '',
+        creationStartDate: '', creationEndDate: '', referredBy: '',
+        stateChangeFilters: null,
+    });
+    
     const { events } = useEvents();
     const { clients } = useClients();
-    
-    const [clientListFilters, setClientListFilters] = useState({
-        name: '',
-        phone: '',
-        status: 'active' as 'active' | 'inactive' | 'all',
-        eventState: 'all' as 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled',
-        tasks: 'all' as 'all' | 'overdue',
-        startDate: '',
-        endDate: '',
-        creationStartDate: '',
-        creationEndDate: '',
-        referredBy: '',
-    });
 
     const handleNavigation = (pageName: PageName, newClientId?: string) => {
         setPage(pageName);
         setClientId(newClientId || null);
+        setHistory([]); // Clear history on main navigation
     };
     
-    const navigateToClient = (page: 'dashboard' | 'clients', clientId?: string, eventId?: string, action?: 'editEvent' | 'viewMenu') => {
-        // This function now primarily handles setting the state for the ClientDetailsPage to consume
-        // It sets the client ID and lets the main renderer switch to that view.
-        setClientId(clientId || null);
+    const goToClientPage = (targetClientId: string) => {
+        const currentState: HistoryState = {
+            page,
+            dashboardState,
+            clientListFilters,
+        };
+        setHistory(prev => [...prev, currentState]);
+        setClientId(targetClientId);
+    };
+
+    const handleBack = () => {
+        const lastState = history[history.length - 1];
+        if (lastState) {
+            setPage(lastState.page);
+            setDashboardState(lastState.dashboardState);
+            setClientListFilters(lastState.clientListFilters);
+            setHistory(prev => prev.slice(0, -1));
+        } else {
+            // Fallback if history is empty (e.g., direct URL access to a client page)
+            // Going to the main client list is a sensible default.
+            setPage('clients');
+        }
+        setClientId(null);
     };
 
     useEffect(() => {
@@ -955,15 +1366,6 @@ function App() {
         return () => clearInterval(intervalId);
     }, []);
 
-    const managedEvents = useMemo(() => {
-        if (!currentUser) return [];
-        if (currentUser.role === 'admin' || currentUser.role === 'kitchen') return events;
-        if (currentUser.role === 'staff' && currentUser.managedLocationIds && currentUser.managedLocationIds.length > 0) {
-            return events.filter(e => currentUser.managedLocationIds!.includes(e.location));
-        }
-        return events; // Default for staff with no location restrictions
-    }, [currentUser, events]);
-
     if (isInitializing) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -1001,8 +1403,7 @@ function App() {
         return <div className="p-8 text-center">Loading permissions...</div>;
     }
 
-    const NavItem = ({ icon: Icon, label, pageName, activePage, onNavigate, permission }: { icon: React.ElementType, label: string, pageName: PageName, activePage: PageName, onNavigate: (p:PageName)=>void, permission: PermissionLevel }) => {
-        if (permission === 'none') return null;
+    const NavItem = ({ icon: Icon, label, pageName, activePage, onNavigate }: { icon: React.ElementType, label: string, pageName: PageName, activePage: PageName, onNavigate: (p:PageName)=>void }) => {
         return (
             <li
                 onClick={() => onNavigate(pageName)}
@@ -1024,6 +1425,39 @@ function App() {
         </li>
     );
 
+    const navConfig = [
+        { type: 'item', icon: LayoutGrid, label: 'Dashboard', pageName: 'dashboard', permissionKey: 'dashboard' },
+        { type: 'item', icon: Building, label: 'Clients & Events', pageName: 'clients', permissionKey: 'clientsAndEvents' },
+        { 
+            type: 'group', 
+            label: 'Food & Menu', 
+            items: [
+                { icon: ListTree, label: 'Item Bank', pageName: 'itemBank', permissionKey: 'itemBank' },
+                { icon: BookCopy, label: 'Catalogs', pageName: 'catalogs', permissionKey: 'catalogs' },
+                { icon: FileText, label: 'Templates', pageName: 'templates', permissionKey: 'templates' },
+                { icon: Salad, label: 'Live Counters', pageName: 'liveCounters', permissionKey: 'liveCounters' },
+            ]
+        },
+        {
+            type: 'group',
+            label: 'Management',
+            items: [
+                { icon: AreaChart, label: 'Reports', pageName: 'reports', permissionKey: 'reports' },
+            ]
+        },
+        {
+            type: 'group',
+            label: 'Administration',
+            adminOnly: true,
+            items: [
+                 { icon: UsersIcon, label: 'Users & Roles', pageName: 'users', permissionKey: 'users' },
+                 { icon: History, label: 'Audit Logs', pageName: 'audit', permissionKey: 'users' }, // Use 'users' as a proxy for admin-only pages
+                 { icon: Database, label: 'Data Hub', pageName: 'dataHub', permissionKey: 'users' },
+            ]
+        },
+        { type: 'item', icon: Wrench, label: 'Settings', pageName: 'settings', permissionKey: 'settings' },
+    ];
+
     const sidebarContent = currentUser.role === 'kitchen' ? (
         <nav>
             <ul className="space-y-2">
@@ -1038,22 +1472,40 @@ function App() {
     ) : (
         <nav>
             <ul className="space-y-2">
-                <NavItem icon={LayoutGrid} label="Dashboard" pageName="dashboard" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.dashboard} />
-                <NavItem icon={Building} label="Clients & Events" pageName="clients" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.clientsAndEvents} />
-                <h4 className="text-xs font-bold uppercase text-warm-gray-400 pt-4 pb-1 px-3">Food & Menu</h4>
-                <NavItem icon={ListTree} label="Item Bank" pageName="itemBank" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.itemBank} />
-                <NavItem icon={BookCopy} label="Catalogs" pageName="catalogs" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.catalogs} />
-                <NavItem icon={FileText} label="Templates" pageName="templates" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.templates} />
-                <NavItem icon={Salad} label="Live Counters" pageName="liveCounters" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.liveCounters} />
-                 <h4 className="text-xs font-bold uppercase text-warm-gray-400 pt-4 pb-1 px-3">Management</h4>
-                 <NavItem icon={AreaChart} label="Reports" pageName="reports" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.reports} />
-                {currentUser.role === 'admin' && <>
-                    <h4 className="text-xs font-bold uppercase text-warm-gray-400 pt-4 pb-1 px-3">Administration</h4>
-                    <NavItem icon={UsersIcon} label="Users & Roles" pageName="users" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.users} />
-                    <NavItem icon={History} label="Audit Logs" pageName="audit" activePage={page} onNavigate={p => handleNavigation(p)} permission={'modify'} />
-                    <NavItem icon={Database} label="Data Hub" pageName="dataHub" activePage={page} onNavigate={p => handleNavigation(p)} permission={'modify'} />
-                </>}
-                 <NavItem icon={Wrench} label="Settings" pageName="settings" activePage={page} onNavigate={p => handleNavigation(p)} permission={permissions!.settings} />
+                {navConfig.map((navItem, index) => {
+                    if (navItem.type === 'item') {
+                        if (permissions?.[navItem.permissionKey as keyof AppPermissions] !== 'none') {
+                            return <NavItem key={index} icon={navItem.icon} label={navItem.label} pageName={navItem.pageName as PageName} activePage={page} onNavigate={p => handleNavigation(p)} />;
+                        }
+                        return null;
+                    }
+
+                    if (navItem.type === 'group') {
+                        if (navItem.adminOnly && currentUser.role !== 'admin') {
+                            return null;
+                        }
+                        
+                        const isGroupVisible = navItem.items.some(item => permissions?.[item.permissionKey as keyof AppPermissions] !== 'none');
+
+                        if (isGroupVisible) {
+                            return (
+                                <li key={index}>
+                                    <h4 className="text-xs font-bold uppercase text-warm-gray-400 pt-4 pb-1 px-3">{navItem.label}</h4>
+                                    <ul className="space-y-2">
+                                        {navItem.items.map((item, itemIndex) => {
+                                             if (permissions?.[item.permissionKey as keyof AppPermissions] !== 'none') {
+                                                return <NavItem key={itemIndex} icon={item.icon} label={item.label} pageName={item.pageName as PageName} activePage={page} onNavigate={p => handleNavigation(p)} />;
+                                             }
+                                             return null;
+                                        })}
+                                    </ul>
+                                </li>
+                            );
+                        }
+                        return null;
+                    }
+                    return null;
+                })}
             </ul>
         </nav>
     );
@@ -1061,7 +1513,7 @@ function App() {
     return (
         <div>
             {isChangePasswordModalOpen && <Modal isOpen={true} onClose={() => setIsChangePasswordModalOpen(false)} title="Change Password"><ChangePasswordForm onCancel={() => setIsChangePasswordModalOpen(false)} /></Modal>}
-            {isMyTasksModalOpen && <MyTasksModal isOpen={true} onClose={() => setIsMyTasksModalOpen(false)} onNavigateToClient={(clientId) => {setIsMyTasksModalOpen(false); handleNavigation('clients', clientId); }} />}
+            {isMyTasksModalOpen && <MyTasksModal isOpen={true} onClose={() => setIsMyTasksModalOpen(false)} onNavigateToClient={(clientId) => {setIsMyTasksModalOpen(false); goToClientPage(clientId); }} />}
             <div className="flex h-screen">
                  {/* Sidebar */}
                 <aside className={`fixed z-40 inset-y-0 left-0 w-64 bg-white dark:bg-warm-gray-900 border-r border-warm-gray-200 dark:border-warm-gray-800 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out`}>
@@ -1101,17 +1553,19 @@ function App() {
                         {clientId ? 
                             <ClientDetailsPage 
                                 clientId={clientId} 
-                                onBack={() => { handleNavigation('clients'); }} 
+                                onBack={handleBack} 
                             /> 
                             : <AdminPage 
                                 activePage={page} 
-                                onNavigate={navigateToClient}
+                                onNavigate={goToClientPage}
                                 permissions={permissions!}
                                 userRole={currentUser.role}
-                                managedEvents={managedEvents}
+                                managedEvents={events}
                                 clients={clients}
                                 clientListFilters={clientListFilters}
                                 setClientListFilters={setClientListFilters}
+                                dashboardState={dashboardState}
+                                setDashboardState={setDashboardState}
                             />}
                     </main>
                 </div>

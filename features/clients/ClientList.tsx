@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { Client, Event, EventState, FinancialHistoryEntry } from '../../types';
 import { useClients, useClientTasks, useEvents, useReferralSources } from '../../contexts/AppContexts';
@@ -20,6 +21,7 @@ type FilterShape = {
     creationStartDate: string;
     creationEndDate: string;
     referredBy: string;
+    stateChangeFilters: { state: EventState, period: 'this_week' } | null;
 };
 
 const defaultFilters: Omit<FilterShape, 'name' | 'phone'> = {
@@ -31,6 +33,7 @@ const defaultFilters: Omit<FilterShape, 'name' | 'phone'> = {
     creationStartDate: '',
     creationEndDate: '',
     referredBy: '',
+    stateChangeFilters: null,
 };
 
 const ActiveFilterPill = ({ label, onRemove }: { label: string, onRemove: () => void }) => (
@@ -91,10 +94,10 @@ const FilterPillGroup = ({ label, options, value, onChange }: {
 );
 
 
-export const ClientList = ({ clients, events, onNavigate, filters, setFilters }: { 
+export const ClientList = ({ clients, events, onClientClick, filters, setFilters }: { 
     clients: Client[],
     events: Event[],
-    onNavigate: (page: 'clients' | 'dashboard', clientId: string) => void,
+    onClientClick: (clientId: string) => void,
     filters: FilterShape,
     setFilters: React.Dispatch<React.SetStateAction<FilterShape>>
 }) => {
@@ -144,7 +147,46 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
         return clientIds;
     }, [events, filters.startDate, filters.endDate]);
 
+    const stateChangeFilteredClientIds = useMemo(() => {
+        const { stateChangeFilters } = filters;
+        if (!stateChangeFilters) {
+            return null;
+        }
+
+        const now = new Date();
+        const today = now.getDay(); // 0 for Sunday, 1 for Monday, etc.
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - today);
+        startOfWeek.setHours(0, 0, 0, 0);
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        const clientIds = new Set<string>();
+
+        events.forEach(event => {
+            if (event.stateHistory) {
+                const hasMatchingChange = event.stateHistory.some(entry => {
+                    if (entry.toState === stateChangeFilters.state) {
+                        const changeDate = new Date(entry.timestamp);
+                        return changeDate >= startOfWeek && changeDate <= endOfWeek;
+                    }
+                    return false;
+                });
+                if (hasMatchingChange) {
+                    clientIds.add(event.clientId);
+                }
+            }
+        });
+        return clientIds;
+    }, [events, filters.stateChangeFilters]);
+
     const filteredClients = useMemo(() => {
+        if (stateChangeFilteredClientIds !== null) {
+            return clients.filter(client => stateChangeFilteredClientIds.has(client.id));
+        }
+
         const clientEventStates = new Map<string, Set<EventState>>();
         events.forEach(event => {
             if (!clientEventStates.has(event.clientId)) {
@@ -157,7 +199,7 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
             const nameMatch = client.name.toLowerCase().includes(filters.name.toLowerCase());
             const phoneMatch = client.phone.toLowerCase().includes(filters.phone.toLowerCase());
             const statusMatch = (filters.status === 'all') || ((client.status || 'active') === filters.status);
-            const referredByMatch = (filters.referredBy === '' || client.referredBy === filters.referredBy);
+            const referredByMatch = (filters.referredBy === '' || client.referredBy?.toLowerCase() === filters.referredBy.toLowerCase());
             
             if (!nameMatch || !phoneMatch || !statusMatch || !referredByMatch) {
                 return false;
@@ -200,7 +242,7 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
     
             return true;
         });
-    }, [clients, events, filters, overdueTasksByClient, dateFilteredClientIds]);
+    }, [clients, events, filters, overdueTasksByClient, dateFilteredClientIds, stateChangeFilteredClientIds]);
 
     const handleOpenWizard = () => {
         setNewlyCreatedClient(null);
@@ -261,11 +303,35 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
 
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        setFilters(prev => ({...prev, [name]: value}));
+        setFilters(prev => ({...prev, [name]: value, stateChangeFilters: null}));
     };
     
     const handleButtonFilterChange = (name: keyof FilterShape, value: string) => {
-        setFilters(prev => ({ ...prev, [name]: value as any }));
+        setFilters(prev => ({ ...prev, [name]: value as any, stateChangeFilters: null }));
+    };
+    
+    const handleQuickFilter = (type: 'walkinsThisWeek' | 'phoneEnquiriesThisWeek' | 'confirmedThisWeek' | 'lostThisWeek') => {
+        const now = new Date();
+        const today = now.getDay(); // 0 for Sunday
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - today);
+        const startOfWeekStr = dateToYYYYMMDD(startOfWeek);
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        const endOfWeekStr = dateToYYYYMMDD(endOfWeek);
+
+        const baseReset = { ...defaultFilters, name: '', phone: '' };
+
+        if (type === 'walkinsThisWeek') {
+            setFilters({ ...baseReset, creationStartDate: startOfWeekStr, creationEndDate: endOfWeekStr, referredBy: 'Walk-In' });
+        } else if (type === 'phoneEnquiriesThisWeek') {
+            setFilters({ ...baseReset, creationStartDate: startOfWeekStr, creationEndDate: endOfWeekStr, referredBy: 'Phone Enquiry' });
+        } else if (type === 'confirmedThisWeek') {
+            setFilters({ ...baseReset, stateChangeFilters: { state: 'confirmed', period: 'this_week' } });
+        } else if (type === 'lostThisWeek') {
+            setFilters({ ...baseReset, stateChangeFilters: { state: 'lost', period: 'this_week' } });
+        }
     };
 
     const clientStatusOptions = [
@@ -284,14 +350,19 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
 
     const renderActiveFilterPills = () => {
         const pills = [];
+        if(filters.stateChangeFilters?.state === 'confirmed') pills.push(<ActiveFilterPill key="scf" label={`Confirmed This Week`} onRemove={() => handleRemoveFilter('stateChangeFilters')} />);
+        if(filters.stateChangeFilters?.state === 'lost') pills.push(<ActiveFilterPill key="scf" label={`Lost This Week`} onRemove={() => handleRemoveFilter('stateChangeFilters')} />);
+        if(filters.creationStartDate && filters.referredBy === 'Walk-In') pills.push(<ActiveFilterPill key="wtiw" label={`Walk-ins This Week`} onRemove={() => { handleRemoveFilter('creationStartDate'); handleRemoveFilter('creationEndDate'); handleRemoveFilter('referredBy');}} />);
+        if(filters.creationStartDate && filters.referredBy === 'Phone Enquiry') pills.push(<ActiveFilterPill key="ptiw" label={`Phone Enquiries This Week`} onRemove={() => { handleRemoveFilter('creationStartDate'); handleRemoveFilter('creationEndDate'); handleRemoveFilter('referredBy');}} />);
+
         if(filters.status !== defaultFilters.status) pills.push(<ActiveFilterPill key="status" label={`Status: ${filters.status}`} onRemove={() => handleRemoveFilter('status')} />);
         if(filters.eventState !== defaultFilters.eventState) pills.push(<ActiveFilterPill key="eventState" label={`Event: ${filters.eventState}`} onRemove={() => handleRemoveFilter('eventState')} />);
         if(filters.tasks !== defaultFilters.tasks) pills.push(<ActiveFilterPill key="tasks" label={`Tasks: ${filters.tasks}`} onRemove={() => handleRemoveFilter('tasks')} />);
         if(filters.startDate) pills.push(<ActiveFilterPill key="startDate" label={`Event From: ${filters.startDate}`} onRemove={() => handleRemoveFilter('startDate')} />);
         if(filters.endDate) pills.push(<ActiveFilterPill key="endDate" label={`Event To: ${filters.endDate}`} onRemove={() => handleRemoveFilter('endDate')} />);
-        if(filters.creationStartDate) pills.push(<ActiveFilterPill key="creationStartDate" label={`Created From: ${filters.creationStartDate}`} onRemove={() => handleRemoveFilter('creationStartDate')} />);
-        if(filters.creationEndDate) pills.push(<ActiveFilterPill key="creationEndDate" label={`Created To: ${filters.creationEndDate}`} onRemove={() => handleRemoveFilter('creationEndDate')} />);
-        if(filters.referredBy) pills.push(<ActiveFilterPill key="referredBy" label={`Source: ${filters.referredBy}`} onRemove={() => handleRemoveFilter('referredBy')} />);
+        if(filters.creationStartDate && !filters.referredBy) pills.push(<ActiveFilterPill key="creationStartDate" label={`Created From: ${filters.creationStartDate}`} onRemove={() => handleRemoveFilter('creationStartDate')} />);
+        if(filters.creationEndDate && !filters.referredBy) pills.push(<ActiveFilterPill key="creationEndDate" label={`Created To: ${filters.creationEndDate}`} onRemove={() => handleRemoveFilter('creationEndDate')} />);
+        if(filters.referredBy && !filters.creationStartDate) pills.push(<ActiveFilterPill key="referredBy" label={`Source: ${filters.referredBy}`} onRemove={() => handleRemoveFilter('referredBy')} />);
         return pills;
     };
     
@@ -325,6 +396,15 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
             </div>
 
              <div className="mb-6 p-4 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-lg space-y-4">
+                 <div className="space-y-2">
+                    <label className="text-sm font-semibold">Quick Filters</label>
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={() => handleQuickFilter('walkinsThisWeek')} className={secondaryButton}>Walk-ins This Week</button>
+                        <button onClick={() => handleQuickFilter('phoneEnquiriesThisWeek')} className={secondaryButton}>Phone Enquiries This Week</button>
+                        <button onClick={() => handleQuickFilter('confirmedThisWeek')} className={secondaryButton}>Confirmed This Week</button>
+                        <button onClick={() => handleQuickFilter('lostThisWeek')} className={secondaryButton}>Lost This Week</button>
+                    </div>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <input type="text" placeholder="Search by name..." name="name" value={filters.name} onChange={handleFilterChange} className={inputStyle} />
                     <input type="text" placeholder="Search by phone..." name="phone" value={filters.phone} onChange={handleFilterChange} className={inputStyle} />
@@ -408,7 +488,7 @@ export const ClientList = ({ clients, events, onNavigate, filters, setFilters }:
                 {filteredClients.sort((a,b) => a.name.localeCompare(b.name)).map(client => {
                     const hasOverdueTask = overdueTasksByClient.has(client.id);
                     return (
-                        <div key={client.id} onClick={() => onNavigate('clients', client.id)} className="bg-white dark:bg-warm-gray-800 rounded-lg shadow-md p-5 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all">
+                        <div key={client.id} onClick={() => onClientClick(client.id)} className="bg-white dark:bg-warm-gray-800 rounded-lg shadow-md p-5 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all">
                             <div className="flex items-center justify-between">
                                 <h5 className="font-bold text-lg text-warm-gray-800 dark:text-warm-gray-200 flex items-center gap-2">
                                    {hasOverdueTask && <span title="Overdue tasks"><BellDot size={16} className="text-accent-500 flex-shrink-0" /></span>}

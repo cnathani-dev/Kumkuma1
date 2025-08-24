@@ -1,19 +1,28 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useEvents, useClients, useClientTasks, useUsers } from '../../contexts/AppContexts';
+import { useEvents, useClients, useClientTasks, useUsers, useCompetitionSettings, useLostReasonSettings, useClientActivities, useClientActivityTypeSettings } from '../../contexts/AppContexts';
 import { useUserPermissions, useAuth } from '../../contexts/AuthContext';
-import { Event, Client, EventState, StateChangeHistoryEntry, ClientTask, User, FinancialHistoryEntry, Transaction, Charge } from '../../types';
+import { Event, Client, EventState, StateChangeHistoryEntry, ClientTask, User, FinancialHistoryEntry, Transaction, Charge, ClientActivity } from '../../types';
 import MenuCreator from '../features/menu-creator/MenuCreator';
-import { Plus, Edit, Trash2, Copy, Save, UserCheck, Check, Building, Phone, Mail, Map as MapIcon, Briefcase, ListChecks, Calendar, DollarSign, Clock, CheckCircle2 } from 'lucide-react';
-import Modal from '../components/Modal';
-import { EventCard } from '../components/EventCard';
-import { primaryButton, dangerButton, secondaryButton, inputStyle, iconButton } from '../components/common/styles';
-import { ClientForm } from '../components/forms/ClientForm';
-import { EventForm } from '../components/forms/EventForm';
-import { LiveCounterSelectorPage } from '../features/live-counters/LiveCounterSelectorPage';
+import { Plus, Edit, Trash2, Copy, Save, UserCheck, Check, Building, Phone, Mail, Map as MapIcon, Briefcase, ListChecks, Calendar, DollarSign, Clock, CheckCircle2, MessageSquare, Send, HelpCircle, ArrowLeft, MoreVertical, FilePenLine } from 'lucide-react';
+import * as icons from 'lucide-react';
+import Modal from '../../components/Modal';
+import { EventCard } from '../../components/EventCard';
+import { primaryButton, dangerButton, secondaryButton, inputStyle, iconButton } from '../../components/common/styles';
+import { ClientForm } from '../../components/forms/ClientForm';
+import { EventForm } from '../../components/forms/EventForm';
 import { FinanceManager } from '../features/finance/FinanceManager';
 import { ServicePlannerPage } from '../features/service-planning/ServicePlannerPage';
 import { KitchenPlanPage } from '../features/kitchen-plan/KitchenPlanPage';
-import { yyyyMMDDToDate, dateToYYYYMMDD, formatYYYYMMDD } from '../lib/utils';
+import { yyyyMMDDToDate, dateToYYYYMMDD, formatYYYYMMDD } from '../../lib/utils';
+
+const LucideIcon = ({ name, ...props }: { name: string;[key: string]: any }) => {
+    const IconComponent = (icons as any)[name];
+    if (!IconComponent) {
+        return <HelpCircle {...props} />; // fallback icon
+    }
+    return <IconComponent {...props} />;
+};
+
 
 const TaskFormModal = ({ isOpen, onClose, onSave, taskToEdit, clientId }: {
     isOpen: boolean;
@@ -201,7 +210,7 @@ interface ClientDetailsPageProps {
   eventToEditId?: string | null;
 }
 
-type PageState = 'LIST' | 'MENU_CREATOR' | 'LIVE_COUNTER_SELECTOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN';
+type PageState = 'LIST' | 'MENU_CREATOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN';
 
 const generateChanges = (oldData: any, newData: any, fields: string[]): { field: string, from: any, to: any }[] => {
     const changes: { field: string, from: any, to: any }[] = [];
@@ -241,7 +250,7 @@ const EventsTab: React.FC<{
             {clientEvents.length === 0 ? (
                 <p className="text-center text-warm-gray-500 py-8">No events found for this client.</p>
             ) : (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {clientEvents.map(event => (
                         <EventCard
                             key={event.id}
@@ -266,21 +275,67 @@ const EventsTab: React.FC<{
 
 const TasksTab: React.FC<{ client: Client }> = ({ client }) => {
     const { tasks, addTask, updateTask, deleteTask } = useClientTasks();
-    const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+    const { users } = useUsers();
+    const { currentUser } = useAuth();
+
+    // Modal for editing
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [taskToEdit, setTaskToEdit] = useState<ClientTask | null>(null);
+    
+    // State for the inline "Add Task" form
+    const [newTitle, setNewTitle] = useState('');
+    const [newDueDate, setNewDueDate] = useState('');
+    const [newAssignedToUserId, setNewAssignedToUserId] = useState('');
+    
+    const staffAndAdmins = useMemo(() =>
+        users.filter(u => u.role === 'staff' || u.role === 'admin').sort((a, b) => a.username.localeCompare(b.username)),
+    [users]);
+
+    useEffect(() => {
+        // Default assignment to current user for new tasks
+        if (currentUser && !newAssignedToUserId) {
+            setNewAssignedToUserId(currentUser.id);
+        }
+    }, [currentUser, newAssignedToUserId]);
 
     const clientTasks = useMemo(() =>
         tasks.filter(t => t.clientId === client.id).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [tasks, client.id]);
 
-    const handleSaveTask = async (taskData: Omit<ClientTask, 'id'> | ClientTask) => {
+    const handleAddTask = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newTitle.trim() || !currentUser) return;
+        
+        const selectedUser = users.find(u => u.id === newAssignedToUserId);
+        
+        const taskData: Omit<ClientTask, 'id'> = {
+            clientId: client.id,
+            title: newTitle.trim(),
+            dueDate: newDueDate || undefined,
+            assignedToUserId: newAssignedToUserId || undefined,
+            assignedToUsername: selectedUser?.username || undefined,
+            isCompleted: false,
+            createdAt: new Date().toISOString(),
+            userId: currentUser.id,
+            username: currentUser.username,
+        };
+        
         try {
-            if ('id' in taskData) {
-                await updateTask(taskData);
-            } else {
-                await addTask(taskData);
-            }
-            setIsTaskModalOpen(false);
+            await addTask(taskData);
+            // Reset form
+            setNewTitle('');
+            setNewDueDate('');
+            setNewAssignedToUserId(currentUser?.id || '');
+        } catch (error) {
+            console.error(error);
+            alert(`Failed to add task: ${error}`);
+        }
+    };
+    
+    const handleSaveEditedTask = async (taskData: ClientTask) => {
+        try {
+            await updateTask(taskData);
+            setIsEditModalOpen(false);
             setTaskToEdit(null);
         } catch (error) {
             console.error(error);
@@ -300,20 +355,32 @@ const TasksTab: React.FC<{ client: Client }> = ({ client }) => {
 
     return (
         <div>
-            {isTaskModalOpen && (
+            {isEditModalOpen && (
                 <TaskFormModal
-                    isOpen={isTaskModalOpen}
-                    onClose={() => { setIsTaskModalOpen(false); setTaskToEdit(null); }}
-                    onSave={handleSaveTask}
+                    isOpen={isEditModalOpen}
+                    onClose={() => { setIsEditModalOpen(false); setTaskToEdit(null); }}
+                    onSave={handleSaveEditedTask as (taskData: Omit<ClientTask, 'id'> | ClientTask) => void}
                     taskToEdit={taskToEdit}
                     clientId={client.id}
                 />
             )}
-            <div className="flex justify-end mb-4">
-                <button onClick={() => { setTaskToEdit(null); setIsTaskModalOpen(true); }} className={primaryButton}>
-                    <Plus size={16}/> Add Task
-                </button>
-            </div>
+            
+            <form onSubmit={handleAddTask} className="mb-6 p-4 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-lg space-y-3">
+                <h4 className="font-bold">Add Task</h4>
+                 <div className="space-y-2">
+                    <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} required className={inputStyle} placeholder="Task Title"/>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className={inputStyle} />
+                        <select value={newAssignedToUserId} onChange={e => setNewAssignedToUserId(e.target.value)} className={inputStyle}>
+                            <option value="">-- Unassigned --</option>
+                            {staffAndAdmins.map(user => <option key={user.id} value={user.id}>{user.username}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="flex justify-end">
+                    <button type="submit" className={primaryButton}>Add Task</button>
+                </div>
+            </form>
 
             {clientTasks.length === 0 ? (
                 <p className="text-center text-warm-gray-500 py-8">No tasks for this client.</p>
@@ -337,13 +404,9 @@ const TasksTab: React.FC<{ client: Client }> = ({ client }) => {
                                         <span>Created by: {task.username}</span>
                                     </div>
                                 </div>
-                                <div className="flex-shrink-0 flex items-center gap-1">
-                                    <button onClick={() => { setTaskToEdit(task); setIsTaskModalOpen(true); }} className={iconButton('hover:bg-primary-100')}>
-                                        <Edit size={16} className="text-primary-600"/>
-                                    </button>
-                                    <button onClick={() => handleDeleteTask(task.id)} className={iconButton('hover:bg-accent-100')}>
-                                        <Trash2 size={16} className="text-accent-500"/>
-                                    </button>
+                                <div className="flex-shrink-0">
+                                    <button onClick={() => { setTaskToEdit(task); setIsEditModalOpen(true); }} className={iconButton('hover:bg-primary-100')}><Edit size={16} className="text-primary-600"/></button>
+                                    <button onClick={() => handleDeleteTask(task.id)} className={iconButton('hover:bg-accent-100')}><Trash2 size={16} className="text-accent-500"/></button>
                                 </div>
                             </li>
                         );
@@ -354,372 +417,340 @@ const TasksTab: React.FC<{ client: Client }> = ({ client }) => {
     );
 };
 
-const HistoryTab: React.FC<{ client: Client, events: Event[] }> = ({ client, events }) => {
-    const allHistory = useMemo(() => {
-        let history: any[] = [];
-        
-        if (client.history) {
-            history.push(...client.history.map(h => ({ ...h, type: 'client', details: `Client: ${client.name}` })));
-        }
+const ActivitiesTab: React.FC<{ client: Client }> = ({ client }) => {
+    const { activities, addActivity } = useClientActivities();
+    const { settings: activityTypes } = useClientActivityTypeSettings();
+    const { currentUser } = useAuth();
+    const [details, setDetails] = useState('');
+    const [typeId, setTypeId] = useState('');
 
-        events.forEach(event => {
-            if (event.history) {
-                history.push(...event.history.map(h => ({ ...h, type: 'event_finance', details: `Event: ${event.eventType}` })));
-            }
-            if (event.stateHistory) {
-                history.push(...event.stateHistory.map(h => ({ ...h, type: 'event_state', details: `Event: ${event.eventType}` })));
-            }
-            if(event.charges) {
-                event.charges.forEach(charge => {
-                    if (charge.history) {
-                        history.push(...charge.history.map(h => ({ ...h, type: 'charge', details: `Charge on ${event.eventType}: ${charge.type}` })));
-                    }
-                });
-            }
-            if(event.transactions) {
-                event.transactions.forEach(tx => {
-                    if(tx.history) {
-                        history.push(...tx.history.map(h => ({ ...h, type: tx.type, details: `${tx.type === 'income' ? 'Payment' : 'Expense'} on ${event.eventType}` })));
-                    }
-                })
-            }
+    useEffect(() => {
+        if (activityTypes.length > 0 && !typeId) {
+            setTypeId(activityTypes[0].id);
+        }
+    }, [activityTypes, typeId]);
+
+    const clientActivities = useMemo(() =>
+        activities.filter(a => a.clientId === client.id).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+    [activities, client.id]);
+
+    const handleAddActivity = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!details.trim() || !typeId || !currentUser) return;
+        const typeName = activityTypes.find(t => t.id === typeId)?.name || 'Note';
+        await addActivity({
+            clientId: client.id,
+            timestamp: new Date().toISOString(),
+            userId: currentUser.id,
+            username: currentUser.username,
+            typeId,
+            typeName,
+            details: details.trim(),
         });
-
-        return history.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    }, [client, events]);
-
-    const formatValue = (value: any) => {
-        if (value === null || value === undefined || value === '') return 'N/A';
-        return String(value);
+        setDetails('');
     };
-
-    const renderHistoryItem = (item: any, index: number) => {
-        const date = new Date(item.timestamp).toLocaleString();
-        
-        let content;
-        if (item.type === 'event_state') {
-            content = `State changed from ${item.fromState || 'creation'} to ${item.toState}. ${item.reason ? `Reason: ${item.reason}` : ''}`;
-        } else {
-            content = `${item.action.charAt(0).toUpperCase() + item.action.slice(1)}: ${item.reason}.`;
-        }
-
-        return (
-            <li key={index} className="p-3 bg-white dark:bg-warm-gray-800 rounded-lg shadow-sm">
-                <p className="text-sm font-semibold">{item.details}</p>
-                <p className="text-xs text-warm-gray-400">{date} by {item.username}</p>
-                <p className="mt-1">{content}</p>
-                {item.changes && item.changes.length > 0 && (
-                    <ul className="mt-1 text-xs list-disc pl-5">
-                        {item.changes.map((change: any, i: number) => (
-                            <li key={i}>
-                                <strong>{change.field}:</strong> changed from "{formatValue(change.from)}" to "{formatValue(change.to)}"
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </li>
-        );
-    }
 
     return (
         <div>
-            {allHistory.length === 0 ? (
-                <p className="text-center text-warm-gray-500 py-8">No history recorded for this client or their events.</p>
-            ) : (
-                <ul className="space-y-3">
-                    {allHistory.map(renderHistoryItem)}
-                </ul>
-            )}
+            <form onSubmit={handleAddActivity} className="mb-6 p-4 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-lg space-y-3">
+                <h4 className="font-bold">Add Activity / Note</h4>
+                <textarea value={details} onChange={e => setDetails(e.target.value)} required rows={3} className={inputStyle} placeholder="Record a phone call, meeting notes, etc..."></textarea>
+                <div className="flex items-center justify-between">
+                    <select value={typeId} onChange={e => setTypeId(e.target.value)} className={inputStyle + " w-auto"}>
+                        {activityTypes.map(type => <option key={type.id} value={type.id}>{type.name}</option>)}
+                    </select>
+                    <button type="submit" className={primaryButton}>Add Activity</button>
+                </div>
+            </form>
+
+            <div className="space-y-4">
+                {clientActivities.length === 0 ? <p className="text-center text-warm-gray-500 py-8">No activities recorded for this client.</p> :
+                    clientActivities.map(activity => (
+                        <div key={activity.id} className="flex gap-3">
+                            <div className="flex flex-col items-center">
+                                <span className="p-2 bg-primary-100 rounded-full dark:bg-primary-900/50">
+                                    <LucideIcon name={activityTypes.find(t => t.id === activity.typeId)?.icon || 'MessageSquare'} size={20} className="text-primary-600 dark:text-primary-300"/>
+                                </span>
+                                <div className="flex-grow w-px bg-warm-gray-200 dark:bg-warm-gray-700"></div>
+                            </div>
+                            <div className="pb-4 flex-grow">
+                                <p className="font-semibold">{activity.typeName} <span className="text-xs font-normal text-warm-gray-500">- by {activity.username} on {new Date(activity.timestamp).toLocaleDateString()}</span></p>
+                                <p className="text-sm whitespace-pre-wrap">{activity.details}</p>
+                            </div>
+                        </div>
+                    ))
+                }
+            </div>
         </div>
     );
 };
 
+const HistoryTab: React.FC<{ client: Client }> = ({ client }) => {
+    const sortedHistory = useMemo(() =>
+        (client.history || []).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+    [client.history]);
 
-export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({ clientId, onBack, eventIdToOpen, eventToEditId }) => {
+    if (!sortedHistory.length) {
+        return <p className="text-center text-warm-gray-500 py-8">No client history recorded.</p>;
+    }
+
+    return (
+        <div className="space-y-4">
+            {sortedHistory.map((entry, index) => (
+                <div key={index} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                        <span className="p-2 bg-blue-100 rounded-full dark:bg-blue-900/50">
+                            <FilePenLine size={20} className="text-blue-600 dark:text-blue-300"/>
+                        </span>
+                        {index < sortedHistory.length - 1 && <div className="flex-grow w-px bg-warm-gray-200 dark:bg-warm-gray-700"></div>}
+                    </div>
+                    <div className="pb-4 flex-grow">
+                        <p className="font-semibold">{entry.action === 'created' ? 'Client Created' : 'Client Details Updated'}
+                            <span className="text-xs font-normal text-warm-gray-500"> - by {entry.username} on {new Date(entry.timestamp).toLocaleString()}</span>
+                        </p>
+                        <p className="text-sm italic text-warm-gray-600 dark:text-warm-gray-400">Reason: {entry.reason}</p>
+                        {entry.changes && entry.changes.length > 0 && (
+                            <div className="mt-2 text-xs p-2 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-md">
+                                <p className="font-semibold">Changes:</p>
+                                <ul className="list-disc pl-5">
+                                    {entry.changes.map((change, cIndex) => (
+                                        <li key={cIndex}>
+                                            <strong>{change.field}:</strong> "{change.from || 'empty'}" → "{change.to || 'empty'}"
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({
+  clientId,
+  onBack,
+}) => {
+    // Hooks
     const { clients, updateClient, deleteClient } = useClients();
     const { events, addEvent, updateEvent, deleteEvent, duplicateEvent } = useEvents();
-    const { currentUser } = useAuth();
     const permissions = useUserPermissions();
-    
-    type ActiveTab = 'events' | 'tasks' | 'history';
-    const [activeTab, setActiveTab] = useState<ActiveTab>('events');
-    const tabsToShow: ActiveTab[] = currentUser?.role === 'regular' ? ['events'] : ['events', 'tasks', 'history'];
+    const { currentUser } = useAuth();
+    const { settings: competitionSettings } = useCompetitionSettings();
+    const { settings: lostReasonSettings } = useLostReasonSettings();
 
+    // Page state
     const [pageState, setPageState] = useState<PageState>('LIST');
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+    const [activeTab, setActiveTab] = useState<'events' | 'tasks' | 'activities' | 'history'>('events');
 
-    const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+    // Modal states
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
-    const [isCopied, setIsCopied] = useState(false);
+    const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+    const [eventToEdit, setEventToEdit] = useState<Event | null>(null);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
+    const [eventToCancel, setEventToCancel] = useState<Event | null>(null);
     const [isLostModalOpen, setIsLostModalOpen] = useState(false);
-    const [lostReason, setLostReason] = useState('');
+    const [lostReasonId, setLostReasonId] = useState('');
+    const [competitionId, setCompetitionId] = useState('');
+    const [lostNotes, setLostNotes] = useState('');
+    const [eventToMarkAsLost, setEventToMarkAsLost] = useState<Event | null>(null);
 
-    const canModify = permissions?.clientsAndEvents === 'modify';
-    const canAccessFinances = useMemo(() => {
-        if (!permissions) return false;
-        return permissions.financeCore !== 'none' || permissions.financeCharges !== 'none' || permissions.financePayments !== 'none' || permissions.financeExpenses !== 'none';
-    }, [permissions]);
-
+    // Memos
     const client = useMemo(() => clients.find(c => c.id === clientId), [clients, clientId]);
     const clientEvents = useMemo(() => events.filter(e => e.clientId === clientId).sort((a, b) => b.startDate.localeCompare(a.startDate)), [events, clientId]);
 
-    useEffect(() => {
-        if (eventIdToOpen) {
-            const event = events.find(e => e.id === eventIdToOpen);
-            if (event) {
-                setSelectedEvent(event);
-                setPageState('MENU_CREATOR');
-            }
+    // Handlers
+    const handleSaveClient = async (clientData: Client | Omit<Client, 'id'>) => {
+        if (!currentUser || !client) return;
+        const oldClient = { ...client };
+        const updatedClient = { ...oldClient, ...clientData, id: client.id };
+
+        const changes = generateChanges(oldClient, updatedClient, ['name', 'phone', 'email', 'company', 'address', 'referredBy', 'status']);
+        if (changes.length > 0) {
+            const reason = window.prompt("Please provide a reason for these changes:");
+            if (!reason) return;
+            const historyEntry: FinancialHistoryEntry = {
+                timestamp: new Date().toISOString(),
+                userId: currentUser.id,
+                username: currentUser.username,
+                action: 'updated',
+                reason,
+                changes
+            };
+            updatedClient.history = [...(client.history || []), historyEntry];
         }
-    }, [eventIdToOpen, events]);
-
-    useEffect(() => {
-        if (eventToEditId) {
-            const event = events.find(e => e.id === eventToEditId);
-            if (event) {
-                setSelectedEvent(event);
-                setIsEventModalOpen(true);
-            }
-        }
-    }, [eventToEditId, events]);
-    
-    useEffect(() => {
-        if (selectedEvent) {
-            const updatedEventFromGlobalState = events.find(e => e.id === selectedEvent.id);
-            if (updatedEventFromGlobalState && JSON.stringify(updatedEventFromGlobalState) !== JSON.stringify(selectedEvent)) {
-                setSelectedEvent(updatedEventFromGlobalState);
-            }
-        }
-    }, [events, selectedEvent]);
-
-
-    if (!client) {
-        return (
-            <div className="text-center p-8">
-                <h2 className="text-2xl font-bold">Client not found</h2>
-                <p>The client you are looking for does not exist or could not be loaded.</p>
-                <button onClick={() => onBack()} className={`${secondaryButton} mt-4`}>Go Back</button>
-            </div>
-        );
-    }
-    
-    // --- Event Handlers ---
-    const handleStateChange = async (eventToUpdate: Event, newState: EventState, reason?: string) => {
-        if (!currentUser) { alert("Authentication error. Please log in again."); return; }
-        const historyEntry: StateChangeHistoryEntry = { timestamp: new Date().toISOString(), userId: currentUser.id, username: currentUser.username, fromState: eventToUpdate.state, toState: newState, reason: reason };
-        const updatedEvent: Event = { ...eventToUpdate, state: newState, stateHistory: [...(eventToUpdate.stateHistory || []), historyEntry] };
-        if (newState === 'lost' || newState === 'cancelled') updatedEvent.status = 'finalized';
-        await updateEvent(updatedEvent);
-    };
-
-    const handleRequestCancel = (eventToCancel: Event) => {
-        if (!canModify) return;
-        setSelectedEvent(eventToCancel); setIsCancelModalOpen(true);
-    };
-
-    const handleRequestLost = (eventToMarkAsLost: Event) => {
-        if (!canModify) return;
-        setSelectedEvent(eventToMarkAsLost);
-        setIsLostModalOpen(true);
-    };
-
-    const handleConfirmCancel = async () => {
-        if (selectedEvent && cancelReason.trim() && canModify) {
-            await handleStateChange(selectedEvent, 'cancelled', cancelReason);
-            setIsCancelModalOpen(false); setCancelReason(''); setSelectedEvent(null);
-        } else { alert('A reason is required to cancel the event.'); }
-    };
-
-    const handleConfirmLost = async () => {
-        if (selectedEvent && lostReason.trim() && canModify) {
-            await handleStateChange(selectedEvent, 'lost', lostReason);
-            setIsLostModalOpen(false);
-            setLostReason('');
-            setSelectedEvent(null);
-        } else {
-            alert('A reason is required to mark the event as lost.');
-        }
+        await updateClient(updatedClient);
+        setIsClientModalOpen(false);
     };
 
     const handleSaveEvent = async (eventData: Omit<Event, 'id'> | Event) => {
-        if (!currentUser) return;
-        try {
-            if ('id' in eventData) { // UPDATE
-                const originalEvent = events.find(e => e.id === eventData.id);
-                if (!originalEvent) throw new Error("Original event not found for update logging.");
-
-                const eventFieldsToTrack = ['eventType', 'startDate', 'endDate', 'location', 'session', 'pax', 'notes'];
-                const changes = generateChanges(originalEvent, eventData, eventFieldsToTrack);
-                
-                let updatedEvent = { ...eventData };
-                if (changes.length > 0) {
-                    const historyEntry: FinancialHistoryEntry = {
-                        timestamp: new Date().toISOString(), userId: currentUser.id, username: currentUser.username,
-                        action: 'updated', reason: 'Event details updated', changes
-                    };
-                    updatedEvent.history = [...(originalEvent.history || []), historyEntry];
-                }
-                await updateEvent(updatedEvent as Event);
-
-            } else { // CREATE
-                const historyEntry: FinancialHistoryEntry = {
-                    timestamp: new Date().toISOString(), userId: currentUser.id, username: currentUser.username,
-                    action: 'created', reason: 'Event Created'
-                };
-                const eventWithHistory = { ...eventData, history: [historyEntry] };
-                await addEvent(eventWithHistory);
-            }
-            setIsEventModalOpen(false); setSelectedEvent(null);
-        } catch (error) { console.error(error); alert(`Failed to save event: ${error}`); }
+        if ('id' in eventData) {
+            await updateEvent(eventData);
+        } else {
+            await addEvent(eventData);
+        }
+        setIsEventModalOpen(false);
+        setEventToEdit(null);
     };
     
-    const handleDeleteEvent = async (event: Event) => {
-        if (window.confirm(`Are you sure you want to delete the event "${event.eventType}"? This cannot be undone.`)) {
-            try { await deleteEvent(event); } catch(e) { console.error(e); alert(`Failed to delete event: ${e}`); }
-        }
-    }
-
-    const handleDuplicateEvent = async (event: Event) => {
-        if (window.confirm(`Are you sure you want to duplicate the event "${event.eventType}"? A new lead will be created.`)) {
-            try { await duplicateEvent(event); } catch(e) { console.error(e); alert(`Failed to duplicate event: ${e}`); }
-        }
-    };
-    
-    const handleSaveMenu = (updatedEvent: Event) => { updateEvent(updatedEvent); setPageState('LIST'); setSelectedEvent(null); }
-    const handleSaveLiveCounters = (event: Event, updatedCounters: Record<string, string[]>) => { updateEvent({ ...event, liveCounters: updatedCounters }); setPageState('LIST'); setSelectedEvent(null); }
-    const handleSaveFinance = (updatedEvent: Event) => { updateEvent(updatedEvent); }
-    const handleSaveServicePlan = (updatedEvent: Event) => { updateEvent(updatedEvent); setPageState('LIST'); setSelectedEvent(null); };
-    const handleBackFromKitchenPlan = () => { setPageState('LIST'); setSelectedEvent(null); };
-    
-    const copyCredentials = () => {
-        if (!client.phone) {
-            alert("Client phone number (which is their username and password) is not set. Cannot copy credentials.");
-            return;
-        }
-        const credentials = `Username: ${client.phone}\nPassword: ${client.phone}`;
-        navigator.clipboard.writeText(credentials).then(() => {
-            setIsCopied(true);
-            setTimeout(() => setIsCopied(false), 2000);
-        });
-    };
-
-    const handleSaveClient = async (clientData: Client | Omit<Client, 'id'>) => {
-        if (!currentUser) return;
-        try {
-            const clientFieldsToTrack = ['name', 'phone', 'email', 'company', 'address', 'referredBy', 'status', 'hasSystemAccess'];
-            const changes = generateChanges(client, clientData, clientFieldsToTrack);
-            let clientToSave = { ...clientData };
-
-            if (changes.length > 0) {
-                const historyEntry: FinancialHistoryEntry = {
-                    timestamp: new Date().toISOString(), userId: currentUser.id, username: currentUser.username,
-                    action: 'updated', reason: 'Client details updated', changes
-                };
-                clientToSave.history = [...(client.history || []), historyEntry];
-            }
-            await updateClient(clientToSave as Client); 
-            setIsClientModalOpen(false); 
-        } catch (error) { console.error("Failed to update client:", error); alert(`Failed to update client: ${error}`); }
-    };
-    
-    const handleDeleteClient = () => {
-        if (window.confirm(`Are you sure you want to delete ${client.name}? This will also delete all associated events and their user accounts. This action CANNOT be undone.`)) {
-            deleteClient(client.id).then(() => onBack());
-        }
-    };
-
-    const handleNavigate = (event: Event, state: PageState) => {
+    const handleNavigateToPage = (event: Event, state: PageState) => {
         setSelectedEvent(event);
         setPageState(state);
     };
 
-    if (pageState !== 'LIST' && selectedEvent) {
+    const handleStateChange = async (eventToUpdate: Event, newState: EventState, reason?: string) => {
+        if (!currentUser) return alert("Authentication error. Please log in again.");
+        const historyEntry: StateChangeHistoryEntry = {
+            timestamp: new Date().toISOString(), userId: currentUser.id, username: currentUser.username,
+            fromState: eventToUpdate.state, toState: newState, reason: reason,
+        };
+        const updatedEvent: Event = { ...eventToUpdate, state: newState, stateHistory: [...(eventToUpdate.stateHistory || []), historyEntry]};
+        if (newState !== 'lost') {
+            delete updatedEvent.lostReasonId;
+            delete updatedEvent.lostToCompetitionId;
+            delete updatedEvent.lostNotes;
+        }
+        if (newState === 'lost' || newState === 'cancelled') updatedEvent.status = 'finalized';
+        await updateEvent(updatedEvent);
+    };
+
+    const handleRequestCancel = (event: Event) => { setEventToCancel(event); setIsCancelModalOpen(true); };
+    const handleRequestLost = (event: Event) => { setEventToMarkAsLost(event); setIsLostModalOpen(true); };
+
+    const handleConfirmCancel = async () => {
+        if (eventToCancel && cancelReason.trim()) {
+            await handleStateChange(eventToCancel, 'cancelled', cancelReason);
+            setIsCancelModalOpen(false); setCancelReason(''); setEventToCancel(null);
+        } else { alert('A reason is required to cancel the event.'); }
+    };
+    
+    const handleConfirmLost = async () => {
+        if (!eventToMarkAsLost || !lostReasonId) return alert('A reason is required to mark the event as lost.');
+        const selectedReason = lostReasonSettings.find(r => r.id === lostReasonId);
+        if (!selectedReason) return alert('Invalid reason selected.');
+        let reasonForHistory = `Reason: ${selectedReason.name}.`;
+        let finalCompetitionId: string | undefined = undefined;
+        if (selectedReason.isCompetitionReason) {
+            if (!competitionId) return alert('Please select a competitor.');
+            const competitor = competitionSettings.find(c => c.id === competitionId);
+            if (competitor) { reasonForHistory += ` Lost to: ${competitor.name}.`; finalCompetitionId = competitor.id; }
+            else return alert('Invalid competitor selected.');
+        }
+        if (lostNotes.trim()) reasonForHistory += ` Notes: ${lostNotes.trim()}`;
+        const eventWithLostInfo: Event = { ...eventToMarkAsLost, lostReasonId, lostToCompetitionId: finalCompetitionId, lostNotes: lostNotes.trim() || undefined, };
+        await handleStateChange(eventWithLostInfo, 'lost', reasonForHistory);
+        setIsLostModalOpen(false); setLostReasonId(''); setCompetitionId(''); setLostNotes(''); setEventToMarkAsLost(null);
+    };
+
+    const handleDeleteEvent = (event: Event) => { if (window.confirm("Are you sure?")) deleteEvent(event); };
+    const handleDuplicateEvent = (event: Event) => { if (window.confirm("Duplicate this event as a new lead?")) duplicateEvent(event); };
+
+    const handleDeleteClient = async () => {
+        if (!client) return;
+        if (window.confirm(`ARE YOU SURE you want to delete client "${client.name}"? This will also delete all their associated events and cannot be undone.`)) {
+            try {
+                await deleteClient(client.id);
+                onBack(); // Go back after deletion
+            } catch (error) {
+                console.error("Failed to delete client:", error);
+                alert(`An error occurred: ${error}`);
+            }
+        }
+    };
+
+    const handleCopyCredentials = () => {
+        if (client) {
+            navigator.clipboard.writeText(`Username: ${client.phone}\nPassword: ${client.phone}`);
+            alert('Credentials copied to clipboard!');
+        }
+    };
+
+    const handleFinanceSave = async (updatedEvent: Event) => {
+        // By setting the local state *before* awaiting the database update,
+        // we ensure the UI updates immediately and stays on the finance page.
+        // This prevents a potential race condition where a top-down re-render
+        // from the database snapshot listener could occur before the local state is updated.
+        setSelectedEvent(updatedEvent);
+        await updateEvent(updatedEvent);
+    };
+
+    if (pageState !== 'LIST' && selectedEvent && client) {
         switch (pageState) {
-            case 'MENU_CREATOR':
-                return <MenuCreator initialEvent={selectedEvent} client={client} onSave={handleSaveMenu} onCancel={() => setPageState('LIST')} />;
-            case 'LIVE_COUNTER_SELECTOR':
-                return <LiveCounterSelectorPage event={selectedEvent} onSave={handleSaveLiveCounters} onCancel={() => setPageState('LIST')} canModify={canModify} />;
-            case 'FINANCE':
-                if (!permissions) return null;
-                return <FinanceManager
-                    event={selectedEvent}
-                    onSave={handleSaveFinance}
-                    onCancel={() => setPageState('LIST')}
-                    permissionCore={permissions.financeCore}
-                    permissionCharges={permissions.financeCharges}
-                    permissionPayments={permissions.financePayments}
-                    permissionExpenses={permissions.financeExpenses}
-                />;
-            case 'SERVICE_PLANNER':
-                 return <ServicePlannerPage event={selectedEvent} onSave={handleSaveServicePlan} onCancel={() => setPageState('LIST')} canModify={canModify} />;
-            case 'KITCHEN_PLAN':
-                return <KitchenPlanPage event={selectedEvent} onCancel={handleBackFromKitchenPlan} />;
+            case 'MENU_CREATOR': return <MenuCreator initialEvent={selectedEvent} client={client} onSave={(e) => { updateEvent(e); setPageState('LIST'); }} onCancel={() => setPageState('LIST')} />;
+            case 'FINANCE': return <FinanceManager 
+                event={selectedEvent} 
+                onSave={handleFinanceSave} 
+                onCancel={() => setPageState('LIST')} 
+                permissionCore={permissions?.financeCore || 'none'} 
+                permissionCharges={permissions?.financeCharges || 'none'} 
+                permissionPayments={permissions?.financePayments || 'none'} 
+                permissionExpenses={permissions?.financeExpenses || 'none'} />;
+            case 'SERVICE_PLANNER': return <ServicePlannerPage event={selectedEvent} onSave={(e) => { updateEvent(e); setPageState('LIST'); }} onCancel={() => setPageState('LIST')} canModify={permissions?.clientsAndEvents === 'modify'} />;
+            case 'KITCHEN_PLAN': return <KitchenPlanPage event={selectedEvent} onCancel={() => setPageState('LIST')} />;
         }
     }
-    
+
+    if (!client) return <div className="text-center p-8"><p>Loading client...</p></div>;
+
+    const canModify = permissions?.clientsAndEvents === 'modify';
+    const canAccessFinances = permissions?.financeCore !== 'none' || permissions?.financeCharges !== 'none' || permissions?.financePayments !== 'none' || permissions?.financeExpenses !== 'none';
+    const isRegularUser = currentUser?.role === 'regular';
+
     return (
         <div>
-            {isEventModalOpen && <Modal isOpen={true} onClose={() => { setIsEventModalOpen(false); setSelectedEvent(null); }} title={selectedEvent ? "Edit Event" : "Add Event"}><EventForm onSave={handleSaveEvent} onCancel={() => { setIsEventModalOpen(false); setSelectedEvent(null); }} event={selectedEvent} clientId={client.id} isReadOnly={!canModify} /></Modal>}
             {isClientModalOpen && <Modal isOpen={true} onClose={() => setIsClientModalOpen(false)} title="Edit Client"><ClientForm onSave={handleSaveClient} onCancel={() => setIsClientModalOpen(false)} client={client} /></Modal>}
-            {isCancelModalOpen && <Modal isOpen={isCancelModalOpen} onClose={() => setIsCancelModalOpen(false)} title="Cancel Event"><p>Please provide a reason for cancelling.</p><textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} required className={inputStyle} rows={3}/><div className="flex justify-end gap-3 pt-4"><button onClick={() => setIsCancelModalOpen(false)} className={secondaryButton}>Back</button><button onClick={handleConfirmCancel} disabled={!cancelReason.trim()} className={dangerButton}>Confirm</button></div></Modal>}
-             {isLostModalOpen && <Modal isOpen={isLostModalOpen} onClose={() => setIsLostModalOpen(false)} title="Mark Event as Lost"><p>Please provide a reason for marking this lead as lost.</p><textarea value={lostReason} onChange={e => setLostReason(e.target.value)} required className={inputStyle} rows={3}/><div className="flex justify-end gap-3 pt-4"><button onClick={() => setIsLostModalOpen(false)} className={secondaryButton}>Back</button><button onClick={handleConfirmLost} disabled={!lostReason.trim()} className={dangerButton}>Confirm</button></div></Modal>}
+            {isEventModalOpen && <Modal isOpen={true} onClose={() => setIsEventModalOpen(false)} title={eventToEdit ? "Edit Event" : "Add Event"}><EventForm onSave={handleSaveEvent} onCancel={() => setIsEventModalOpen(false)} event={eventToEdit} clientId={clientId} isReadOnly={!canModify} /></Modal>}
+            {isCancelModalOpen && <Modal isOpen={isCancelModalOpen} onClose={() => setIsCancelModalOpen(false)} title="Cancel Event"><textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} required className={inputStyle} rows={3} placeholder="e.g., Client postponed, duplicate entry, etc."/><div className="flex justify-end gap-3 pt-4"><button onClick={() => setIsCancelModalOpen(false)} className={secondaryButton}>Back</button><button onClick={handleConfirmCancel} className={dangerButton} disabled={!cancelReason.trim()}>Confirm Cancellation</button></div></Modal>}
+            {isLostModalOpen && <Modal isOpen={isLostModalOpen} onClose={() => setIsLostModalOpen(false)} title="Mark Event as Lost"><div className="space-y-4"><select value={lostReasonId} onChange={e => setLostReasonId(e.target.value)} required className={inputStyle}><option value="">-- Select Reason --</option>{lostReasonSettings.sort((a,b)=>a.name.localeCompare(b.name)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>{lostReasonSettings.find(r => r.id === lostReasonId)?.isCompetitionReason && (<select value={competitionId} onChange={e => setCompetitionId(e.target.value)} required className={inputStyle}><option value="">-- Select Competitor --</option>{competitionSettings.sort((a,b)=>a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>)}<textarea value={lostNotes} onChange={e => setLostNotes(e.target.value)} className={inputStyle} rows={3} placeholder="Add any additional details..."/><div className="flex justify-end gap-3 pt-4"><button onClick={() => setIsLostModalOpen(false)} className={secondaryButton}>Back</button><button onClick={handleConfirmLost} className={dangerButton} disabled={!lostReasonId || (!!lostReasonSettings.find(r => r.id === lostReasonId)?.isCompetitionReason && !competitionId)}>Confirm Lost</button></div></div></Modal>}
 
-            <div className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md mb-6">
-                 <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start mb-6">
+                <div className="flex items-center gap-4">
+                    {!isRegularUser && <button onClick={onBack} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}><ArrowLeft size={20}/></button>}
                     <div>
-                        <h2 className="text-3xl font-display font-bold text-primary-600 dark:text-primary-400">{client.name}</h2>
-                        <div className="mt-2 text-sm text-warm-gray-500 space-y-1">
-                            <p className="flex items-center gap-2"><Phone size={14}/> {client.phone}</p>
-                            <p className="flex items-center gap-2"><Mail size={14}/> {client.email || 'N/A'}</p>
-                            <p className="flex items-center gap-2"><Briefcase size={14}/> {client.company || 'N/A'}</p>
+                        <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100 flex items-center gap-2">{client.name} {client.status === 'inactive' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-warm-gray-200 text-warm-gray-600 dark:bg-warm-gray-600 dark:text-warm-gray-200">Inactive</span>}</h2>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-warm-gray-500 mt-1">
+                            {client.company && <span className="flex items-center gap-1.5"><Briefcase size={14}/> {client.company}</span>}
+                            {client.phone && <span className="flex items-center gap-1.5"><Phone size={14}/> {client.phone}</span>}
+                            {client.email && <span className="flex items-center gap-1.5"><Mail size={14}/> {client.email}</span>}
+                            {client.address && <span className="flex items-center gap-1.5"><MapIcon size={14}/> {client.address}</span>}
+                             {client.hasSystemAccess && !isRegularUser && (
+                                <button onClick={handleCopyCredentials} className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
+                                    <Copy size={14}/> Copy Credentials
+                                </button>
+                            )}
                         </div>
                     </div>
-                    {currentUser?.role !== 'regular' && (
-                    <div className="flex items-center gap-2">
-                        <button onClick={onBack} className={secondaryButton}>Back to List</button>
-                        {canModify &&
-                            <>
-                                {client.hasSystemAccess && (
-                                    <button onClick={copyCredentials} className={secondaryButton}>
-                                        {isCopied ? <><CheckCircle2 size={16}/> Copied!</> : <><UserCheck size={16}/> Copy Credentials</>}
-                                    </button>
-                                )}
-                                <button onClick={() => setIsClientModalOpen(true)} className={primaryButton}><Edit size={16}/> Edit Client</button>
-                                {currentUser?.role === 'admin' && <button onClick={handleDeleteClient} className={dangerButton}><Trash2 size={16}/> Delete Client</button>}
-                            </>
-                        }
-                    </div>
+                </div>
+                 <div className="flex items-center gap-2">
+                    {!isRegularUser && canModify && <button onClick={() => setIsClientModalOpen(true)} className={secondaryButton}><Edit size={16}/> Edit Client</button>}
+                    {!isRegularUser && currentUser?.role === 'admin' && (
+                        <button onClick={handleDeleteClient} className={dangerButton}>
+                            <Trash2 size={16}/> Delete Client
+                        </button>
                     )}
                 </div>
             </div>
+
+            {!isRegularUser && (
+                <div className="border-b border-warm-gray-200 dark:border-warm-gray-700 mb-6">
+                    <nav className="-mb-px flex space-x-8">
+                        <button onClick={() => setActiveTab('events')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'events' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>Events</button>
+                        <button onClick={() => setActiveTab('tasks')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'tasks' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>Tasks</button>
+                        <button onClick={() => setActiveTab('activities')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'activities' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>Activities</button>
+                        <button onClick={() => setActiveTab('history')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'history' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>History</button>
+                    </nav>
+                </div>
+            )}
             
-             <div className="border-b border-warm-gray-200 dark:border-warm-gray-700 mb-6">
-                <nav className="-mb-px flex space-x-8">
-                    {tabsToShow.map(tab => (
-                        <button key={tab} onClick={() => setActiveTab(tab)} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>
-                           {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                        </button>
-                    ))}
-                </nav>
+            <div>
+                {activeTab === 'events' && <EventsTab clientEvents={clientEvents} canModify={canModify} canAccessFinances={canAccessFinances} onAddEvent={() => { setEventToEdit(null); setIsEventModalOpen(true); }} onEditEvent={(e) => { setEventToEdit(e); setIsEventModalOpen(true); }} onDeleteEvent={handleDeleteEvent} onDuplicateEvent={handleDuplicateEvent} onNavigate={handleNavigateToPage} onStateChange={handleStateChange} onRequestCancel={handleRequestCancel} onRequestLost={handleRequestLost} />}
+                {activeTab === 'tasks' && <TasksTab client={client} />}
+                {activeTab === 'activities' && <ActivitiesTab client={client} />}
+                {activeTab === 'history' && <HistoryTab client={client} />}
             </div>
-            
-            {activeTab === 'events' && <EventsTab 
-                                            clientEvents={clientEvents} 
-                                            canModify={canModify} 
-                                            canAccessFinances={canAccessFinances}
-                                            onAddEvent={() => {setSelectedEvent(null); setIsEventModalOpen(true);}}
-                                            onEditEvent={(e) => {setSelectedEvent(e); setIsEventModalOpen(true);}}
-                                            onDeleteEvent={handleDeleteEvent}
-                                            onDuplicateEvent={handleDuplicateEvent}
-                                            onNavigate={handleNavigate}
-                                            onStateChange={(e, s) => handleStateChange(e,s)}
-                                            onRequestCancel={handleRequestCancel}
-                                            onRequestLost={handleRequestLost}
-                                        />}
-            {activeTab === 'tasks' && <TasksTab client={client} />}
-            {activeTab === 'history' && <HistoryTab client={client} events={clientEvents} />}
         </div>
     );
 };

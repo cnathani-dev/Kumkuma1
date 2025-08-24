@@ -1,11 +1,7 @@
-
-
-
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Event, Client, Charge, Transaction, FinancialHistoryEntry, PermissionLevel } from '../../types';
-import { useClients } from '../../contexts/AppContexts';
+import { useClients, useLiveCounters, useTemplates } from '../../contexts/AppContexts';
 import { useAuth } from '../../contexts/AuthContext';
 import { deepClone, formatDateRange } from '../../lib/utils';
 import { exportFinanceToPdf, exportFinanceSectionToPdf } from '../../lib/export';
@@ -44,6 +40,8 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
     const [event, setEvent] = useState(() => deepClone(initialEvent));
     const { clients } = useClients();
     const { currentUser } = useAuth();
+    const { liveCounters } = useLiveCounters();
+    const { templates } = useTemplates();
 
     const [modalState, setModalState] = useState<FinanceModalState>(null);
     const [deleteConfirmation, setDeleteConfirmation] = useState<{ id: string, type: 'charge' | 'transaction' } | null>(null);
@@ -57,6 +55,8 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
     }, [initialEvent]);
 
     const clientName = useMemo(() => clients.find(c => c.id === event.clientId)?.name || 'N/A', [clients, event.clientId]);
+    const liveCounterMap = useMemo(() => new Map(liveCounters.map(lc => [lc.id, lc])), [liveCounters]);
+    const templateMap = useMemo(() => new Map(templates.map(t => [t.id, t])), [templates]);
 
     const handleFieldChange = (field: 'perPaxPrice' | 'rent', value: string) => {
         if(isEventLocked || permissionCore !== 'modify') return;
@@ -159,8 +159,18 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
         if (type === 'charge') {
             const index = newEvent.charges?.findIndex(c => c.id === id);
             if (index !== undefined && index > -1) {
-                newEvent.charges![index].isDeleted = true;
-                newEvent.charges![index].history = [...(newEvent.charges![index].history || []), historyEntry];
+                const chargeToDelete = newEvent.charges![index];
+                chargeToDelete.isDeleted = true;
+                chargeToDelete.history = [...(chargeToDelete.history || []), historyEntry];
+                
+                // Clear associated menu items
+                if (chargeToDelete.type === 'Live Counter' && chargeToDelete.liveCounterId && newEvent.liveCounters) {
+                    delete newEvent.liveCounters[chargeToDelete.liveCounterId];
+                } else if (chargeToDelete.type === 'Cocktail Menu') {
+                    newEvent.cocktailMenuItems = {};
+                } else if (chargeToDelete.type === 'Hi-Tea Menu') {
+                    newEvent.hiTeaMenuItems = {};
+                }
             }
         } else {
              const index = newEvent.transactions?.findIndex(t => t.id === id);
@@ -224,7 +234,7 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
         };
         
         const headers: Record<string, string[]> = {
-            'charge': ['Type', 'Amount', 'Notes'],
+            'charge': ['Description', 'Details', 'Amount'],
             'transaction_income': ['Date', 'Mode', 'Notes', 'Amount'],
             'transaction_expense': ['Date', 'Category', 'Notes', 'Amount']
         };
@@ -265,29 +275,104 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
                             </tr>
                         </thead>
                         <tbody>
-                            {visibleData.map(item => (
-                                <tr key={item.id} className={`${item.isDeleted ? 'opacity-50 line-through' : ''}`}>
-                                    {type === 'charge' ? <>
-                                        <td>{item.type}</td>
-                                        <td>₹{item.amount.toLocaleString('en-IN')}</td>
-                                        <td>{item.notes}</td>
-                                    </> : <>
-                                        <td>{new Date(item.date).toLocaleDateString('en-GB')}</td>
-                                        <td>{item.paymentMode || item.category}</td>
-                                        <td>{item.notes}</td>
-                                        <td>₹{item.amount.toLocaleString('en-IN')}</td>
-                                    </>}
-                                    <td className="p-2 text-right">
-                                        <div className="flex justify-end gap-1">
-                                            <button onClick={() => setHistoryLog(item.history || [])} className={iconButton('hover:bg-blue-100')}><History size={16} className="text-blue-500"/></button>
-                                            {canWrite && !isEventLocked && !item.isDeleted && <>
-                                                <button onClick={() => openModal(item)} className={iconButton('hover:bg-primary-100')}><Edit size={16} className="text-primary-600"/></button>
-                                                <button onClick={() => setDeleteConfirmation({ id: item.id, type })} className={iconButton('hover:bg-accent-100')}><Trash2 size={16} className="text-accent-500"/></button>
-                                            </>}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
+                            {visibleData.map(item => {
+                                if (type === 'charge') {
+                                    let description = <p className="font-semibold">{item.type}</p>;
+                                    let details = <p className="text-sm text-warm-gray-500">{item.notes || ''}</p>;
+
+                                    if (item.type === 'Live Counter' && item.liveCounterId) {
+                                        const counter = liveCounterMap.get(item.liveCounterId);
+                                        description = (
+                                            <div>
+                                                <p className="font-semibold">{item.type}</p>
+                                                <p className="text-xs text-warm-gray-500">{counter?.name || 'Unknown Counter'}</p>
+                                            </div>
+                                        );
+                                        details = (
+                                            <div>
+                                                <p>₹{item.price?.toLocaleString('en-IN') || 0} / PAX</p>
+                                                {item.discountAmount > 0 && <p className="text-xs text-red-500">(-₹{item.discountAmount.toLocaleString('en-IN')} discount)</p>}
+                                                {item.notes && <p className="text-xs italic mt-1">{item.notes}</p>}
+                                            </div>
+                                        );
+                                    } else if ((item.type === 'Cocktail Menu' || item.type === 'Hi-Tea Menu') && item.menuTemplateId) {
+                                        const template = templateMap.get(item.menuTemplateId);
+                                        description = (
+                                            <div>
+                                                <p className="font-semibold">{item.type}</p>
+                                                <p className="text-xs text-warm-gray-500">{template?.name || 'Unknown Menu'}</p>
+                                            </div>
+                                        );
+                                        if (item.type === 'Cocktail Menu') {
+                                            details = (
+                                                <div>
+                                                    <p>₹{item.price?.toLocaleString('en-IN') || 0} x {item.cocktailPax || 0} PAX</p>
+                                                    {item.corkageCharges > 0 && <p className="text-xs text-warm-gray-500">(+₹{item.corkageCharges.toLocaleString('en-IN')} corkage)</p>}
+                                                    {item.discountAmount > 0 && <p className="text-xs text-red-500">(-₹{item.discountAmount.toLocaleString('en-IN')} discount)</p>}
+                                                    {item.notes && <p className="text-xs italic mt-1">{item.notes}</p>}
+                                                </div>
+                                            );
+                                        } else { // Hi-Tea
+                                            details = (
+                                                <div>
+                                                    <p>₹{item.price?.toLocaleString('en-IN') || 0} Base Price</p>
+                                                    {item.discountAmount > 0 && <p className="text-xs text-red-500">(-₹{item.discountAmount.toLocaleString('en-IN')} discount)</p>}
+                                                    {item.notes && <p className="text-xs italic mt-1">{item.notes}</p>}
+                                                </div>
+                                            );
+                                        }
+                                    } else if (item.type === 'Additional PAX') {
+                                        description = (
+                                            <div>
+                                                <p className="font-semibold">{item.type}</p>
+                                                <p className="text-xs text-warm-gray-500">{item.additionalPaxCount || 0} extra guests</p>
+                                            </div>
+                                        );
+                                        details = (
+                                            <div>
+                                                <p>@ ₹{event.perPaxPrice?.toLocaleString('en-IN') || 0} / PAX</p>
+                                                {item.discountAmount > 0 && <p className="text-xs text-red-500">(-₹{item.discountAmount.toLocaleString('en-IN')} discount)</p>}
+                                                {item.notes && <p className="text-xs italic mt-1">{item.notes}</p>}
+                                            </div>
+                                        )
+                                    }
+                        
+                                    return (
+                                        <tr key={item.id} className={`${item.isDeleted ? 'opacity-50 line-through' : ''}`}>
+                                            <td className="p-2 align-top">{description}</td>
+                                            <td className="p-2 align-top">{details}</td>
+                                            <td className="p-2 align-top font-semibold text-right">₹{item.amount.toLocaleString('en-IN')}</td>
+                                            <td className="p-2 text-right align-top">
+                                                <div className="flex justify-end gap-1">
+                                                    <button onClick={() => setHistoryLog(item.history || [])} className={iconButton('hover:bg-blue-100')}><History size={16} className="text-blue-500"/></button>
+                                                    {canWrite && !isEventLocked && !item.isDeleted && <>
+                                                        <button onClick={() => openModal(item)} className={iconButton('hover:bg-primary-100')}><Edit size={16} className="text-primary-600"/></button>
+                                                        <button onClick={() => setDeleteConfirmation({ id: item.id, type })} className={iconButton('hover:bg-accent-100')}><Trash2 size={16} className="text-accent-500"/></button>
+                                                    </>}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                }
+                                
+                                return (
+                                    <tr key={item.id} className={`${item.isDeleted ? 'opacity-50 line-through' : ''}`}>
+                                        <td className="p-2 align-top">{new Date(item.date).toLocaleDateString('en-GB')}</td>
+                                        <td className="p-2 align-top">{item.paymentMode || item.category}</td>
+                                        <td className="p-2 align-top">{item.notes}</td>
+                                        <td className="p-2 align-top font-semibold text-right">₹{item.amount.toLocaleString('en-IN')}</td>
+                                        <td className="p-2 text-right align-top">
+                                            <div className="flex justify-end gap-1">
+                                                <button onClick={() => setHistoryLog(item.history || [])} className={iconButton('hover:bg-blue-100')}><History size={16} className="text-blue-500"/></button>
+                                                {canWrite && !isEventLocked && !item.isDeleted && <>
+                                                    <button onClick={() => openModal(item)} className={iconButton('hover:bg-primary-100')}><Edit size={16} className="text-primary-600"/></button>
+                                                    <button onClick={() => setDeleteConfirmation({ id: item.id, type })} className={iconButton('hover:bg-accent-100')}><Trash2 size={16} className="text-accent-500"/></button>
+                                                </>}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                     {visibleData.length === 0 && <p className="text-center text-warm-gray-500 py-4">No entries yet.</p>}
@@ -309,7 +394,7 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
                     }
                 >
                     {modalState.type === 'charge' 
-                        ? <ChargeForm onSave={handleSaveItem} onCancel={() => setModalState(null)} charge={modalState.data} eventPerPaxPrice={event.perPaxPrice || 0} />
+                        ? <ChargeForm onSave={handleSaveItem} onCancel={() => setModalState(null)} charge={modalState.data} eventPerPaxPrice={event.perPaxPrice || 0} eventPax={event.pax || 0} />
                         : <TransactionForm onSave={handleSaveItem} onCancel={() => setModalState(null)} transaction={modalState.data} />
                     }
                 </Modal>
@@ -345,21 +430,23 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
             )}
 
             <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700">
-                <div className="flex items-center gap-3">
-                    <FilePenLine size={32} className="text-primary-500"/>
-                    <div>
-                        <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                            Finances
-                        </h2>
-                        <p className="text-warm-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
-                            <span>{clientName} - {event.eventType} - {formatDateRange(event.startDate, event.endDate)}</span>
-                            <span className="flex items-center gap-1.5"><Users size={14}/> {event.pax || 0} PAX</span>
-                        </p>
+                <div className="flex items-center gap-4">
+                    <button onClick={onCancel} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}><ArrowLeft size={20}/></button>
+                    <div className="flex items-center gap-3">
+                        <FilePenLine size={32} className="text-primary-500"/>
+                        <div>
+                            <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                                Finances
+                            </h2>
+                            <p className="text-warm-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                                <span>{clientName} - {event.eventType} - {formatDateRange(event.startDate, event.endDate)}</span>
+                                <span className="flex items-center gap-1.5"><Users size={14}/> {event.pax || 0} PAX</span>
+                            </p>
+                        </div>
                     </div>
                 </div>
                  <div className="flex items-center gap-2">
-                    {permissionCore !== 'none' && <button onClick={() => exportFinanceToPdf(event, clientName)} className={secondaryButton}><FileDown size={16}/> Full Export</button>}
-                    <button onClick={onCancel} className={secondaryButton}><ArrowLeft size={16}/> Back</button>
+                    {permissionCore !== 'none' && <button onClick={() => exportFinanceToPdf(event, clientName, liveCounters, templates)} className={secondaryButton}><FileDown size={16}/> Full Export</button>}
                 </div>
             </div>
             

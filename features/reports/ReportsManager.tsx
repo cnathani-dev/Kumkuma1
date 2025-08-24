@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useClients, useLocations, usePaymentModes } from '../../contexts/AppContexts';
-import { Event } from '../../types';
+import { Event, AppPermissions, UserRole } from '../../types';
 import { primaryButton, secondaryButton, inputStyle } from '../../components/common/styles';
 import { exportReportToPdf, exportReportToExcel } from '../../lib/export';
 import { IncomeReport } from './IncomeReport';
@@ -12,7 +12,13 @@ import { AdditionalPaxReport } from './AdditionalPaxReport';
 import { yyyyMMDDToDate, formatYYYYMMDD, formatDateRange, dateToYYYYMMDD } from '../../lib/utils';
 import { SalesFunnelReport } from './SalesFunnelReport';
 
-export const ReportsManager = ({ managedEvents }: { managedEvents: Event[]}) => {
+interface ReportsManagerProps {
+    managedEvents: Event[];
+    permissions: AppPermissions;
+    userRole: UserRole;
+}
+
+export const ReportsManager: React.FC<ReportsManagerProps> = ({ managedEvents, permissions, userRole }) => {
     const { clients } = useClients();
     const { locations } = useLocations();
     const { settings: paymentModes } = usePaymentModes();
@@ -43,7 +49,7 @@ export const ReportsManager = ({ managedEvents }: { managedEvents: Event[]}) => 
     }, []);
 
 
-    const reportTypes: Record<string, {name: string, component: React.FC<any>, requiredFilters: string[]}> = {
+    const allReportTypes: Record<string, {name: string, component: React.FC<any>, requiredFilters: string[]}> = {
         income: { name: "Income Report", component: IncomeReport, requiredFilters: ['startDate', 'endDate']},
         expense: { name: "Expense Report", component: ExpenseReport, requiredFilters: ['startDate', 'endDate']},
         profitability: { name: "Event Profitability", component: ProfitabilityReport, requiredFilters: []},
@@ -51,6 +57,19 @@ export const ReportsManager = ({ managedEvents }: { managedEvents: Event[]}) => 
         additionalPax: { name: "Additional PAX Report", component: AdditionalPaxReport, requiredFilters: ['startDate', 'endDate'] },
         salesFunnel: { name: "Sales Funnel Report", component: SalesFunnelReport, requiredFilters: ['startDate', 'endDate'] },
     };
+
+    const visibleReportTypes = useMemo(() => {
+        if (userRole === 'admin') {
+            return allReportTypes;
+        }
+        const visibleKeys = permissions.visibleReports || [];
+        return Object.entries(allReportTypes)
+            .filter(([key]) => visibleKeys.includes(key))
+            .reduce((obj, [key, value]) => {
+                obj[key] = value;
+                return obj;
+            }, {} as typeof allReportTypes);
+    }, [userRole, permissions, allReportTypes]);
 
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -265,7 +284,11 @@ export const ReportsManager = ({ managedEvents }: { managedEvents: Event[]}) => 
             const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, 1);
             const threeMonthsHence = new Date(today.getFullYear(), today.getMonth() + 4, 0);
 
-            const eventsInRange = managedEvents.filter(e => {
+            const locationFilteredEvents = location.length > 0
+                ? managedEvents.filter(e => location.includes(e.location))
+                : managedEvents;
+
+            const eventsInRange = locationFilteredEvents.filter(e => {
                 const eventStart = yyyyMMDDToDate(e.startDate);
                 return eventStart >= threeMonthsAgo && eventStart <= threeMonthsHence;
             });
@@ -336,7 +359,7 @@ export const ReportsManager = ({ managedEvents }: { managedEvents: Event[]}) => 
         };
         
         if (format === 'pdf') {
-            exportReportToPdf(reportTypes[activeReport!].name, headers, data, activeFilters, fileName);
+            exportReportToPdf(visibleReportTypes[activeReport!].name, headers, data, activeFilters, fileName);
         } else {
             const jsonData = data.map(row => 
                 headers.reduce((obj, header, index) => {
@@ -349,54 +372,68 @@ export const ReportsManager = ({ managedEvents }: { managedEvents: Event[]}) => 
     };
     
     if (activeReport) {
-        const ReportComponent = reportTypes[activeReport].component;
-        const areFiltersHidden = activeReport === 'sales';
+        const ReportComponent = visibleReportTypes[activeReport].component;
+        
+        const showLocationFilter = ['income', 'expense', 'additionalPax', 'sales'].includes(activeReport);
+        const showDateFilters = ['income', 'expense', 'additionalPax', 'salesFunnel'].includes(activeReport);
+        const showPaymentFilter = activeReport === 'income';
+        const showAnyFilter = showLocationFilter || showDateFilters || showPaymentFilter;
 
         return (
              <div>
                  <div className="flex justify-between items-center pb-4 border-b mb-4">
-                    <h3 className="text-2xl font-display font-bold text-primary-600 dark:text-primary-400">{reportTypes[activeReport].name}</h3>
+                    <h3 className="text-2xl font-display font-bold text-primary-600 dark:text-primary-400">{visibleReportTypes[activeReport].name}</h3>
                     <button onClick={() => { setActiveReport(null); setGeneratedData(null); }} className={secondaryButton}><ArrowLeft size={16}/> Back to Reports List</button>
                  </div>
-                 {!areFiltersHidden && (
+                 {showAnyFilter && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-lg">
-                        <input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className={inputStyle} title={activeReport === 'salesFunnel' ? "Creation Start Date" : "Start Date"}/>
-                        <input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className={inputStyle} title={activeReport === 'salesFunnel' ? "Creation End Date" : "End Date"}/>
-                        <div className="relative" ref={locationFilterRef}>
-                            <button
-                                type="button"
-                                onClick={() => setIsLocationDropdownOpen(prev => !prev)}
-                                className={inputStyle + " flex justify-between items-center text-left w-full"}
-                            >
-                                <span>
-                                    {filters.location.length === 0
-                                        ? "All Locations"
-                                        : filters.location.length === 1
-                                        ? filters.location[0]
-                                        : `${filters.location.length} locations selected`}
-                                </span>
-                                <ChevronDown size={16} />
-                            </button>
-                            {isLocationDropdownOpen && (
-                                <div className="absolute z-10 mt-1 w-full bg-white dark:bg-warm-gray-700 border border-warm-gray-300 dark:border-warm-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                                    {locations.slice().sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name)).map(l => (
-                                        <label key={l.id} className="flex items-center gap-2 px-3 py-2 hover:bg-warm-gray-100 dark:hover:bg-warm-gray-600 cursor-pointer w-full">
-                                            <input
-                                                type="checkbox"
-                                                checked={filters.location.includes(l.name)}
-                                                onChange={() => handleLocationCheckboxChange(l.name)}
-                                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                            />
-                                            <span>{l.name}</span>
-                                        </label>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        <select name="paymentType" value={filters.paymentType} onChange={handleFilterChange} className={inputStyle} disabled={activeReport !== 'income'}>
-                            <option value="">All Payment Types</option>
-                            {paymentModes.slice().sort((a,b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                        </select>
+                        {showDateFilters ? (
+                            <>
+                                <input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className={inputStyle} title={activeReport === 'salesFunnel' ? "Creation Start Date" : "Start Date"}/>
+                                <input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className={inputStyle} title={activeReport === 'salesFunnel' ? "Creation End Date" : "End Date"}/>
+                            </>
+                        ) : <div className="hidden lg:block lg:col-span-2"></div>}
+                        
+                        {showLocationFilter ? (
+                             <div className="relative lg:col-start-3" ref={locationFilterRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsLocationDropdownOpen(prev => !prev)}
+                                    className={inputStyle + " flex justify-between items-center text-left w-full"}
+                                >
+                                    <span>
+                                        {filters.location.length === 0
+                                            ? "All Locations"
+                                            : filters.location.length === 1
+                                            ? filters.location[0]
+                                            : `${filters.location.length} locations selected`}
+                                    </span>
+                                    <ChevronDown size={16} />
+                                </button>
+                                {isLocationDropdownOpen && (
+                                    <div className="absolute z-10 mt-1 w-full bg-white dark:bg-warm-gray-700 border border-warm-gray-300 dark:border-warm-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                                        {locations.slice().sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name)).map(l => (
+                                            <label key={l.id} className="flex items-center gap-2 px-3 py-2 hover:bg-warm-gray-100 dark:hover:bg-warm-gray-600 cursor-pointer w-full">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={filters.location.includes(l.name)}
+                                                    onChange={() => handleLocationCheckboxChange(l.name)}
+                                                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                />
+                                                <span>{l.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : <div className="hidden lg:block"></div>}
+
+                        {showPaymentFilter ? (
+                             <select name="paymentType" value={filters.paymentType} onChange={handleFilterChange} className={inputStyle}>
+                                <option value="">All Payment Types</option>
+                                {paymentModes.slice().sort((a,b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                            </select>
+                        ) : <div className="hidden lg:block"></div>}
                     </div>
                  )}
                  <div className="flex justify-center my-4">
@@ -412,7 +449,7 @@ export const ReportsManager = ({ managedEvents }: { managedEvents: Event[]}) => 
     return (
         <div>
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
-                 {Object.entries(reportTypes).sort(([, a], [, b]) => a.name.localeCompare(b.name)).map(([key, {name}]) => (
+                 {Object.entries(visibleReportTypes).sort(([, a], [, b]) => a.name.localeCompare(b.name)).map(([key, {name}]) => (
                      <div key={key} onClick={() => setActiveReport(key)} className="bg-white dark:bg-warm-gray-800 p-6 rounded-lg shadow-md cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all">
                         <h4 className="font-bold text-lg">{name}</h4>
                      </div>

@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo } from 'react';
 import { User, Role, AppPermissions, Client, LocationSetting, PermissionLevel, UserRole } from '../../types';
 import { useUsers, useRoles, useClients, useLocations } from '../../contexts/AppContexts';
@@ -202,8 +200,8 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
         }
     };
 
-    const handleLocationToggle = (name: string) => {
-        setManagedLocationIds(prev => prev.includes(name) ? prev.filter(locName => locName !== name) : [...prev, name]);
+    const handleLocationToggle = (locationId: string) => {
+        setManagedLocationIds(prev => prev.includes(locationId) ? prev.filter(id => id !== locationId) : [...prev, locationId]);
     };
     
     return (
@@ -231,7 +229,7 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
                         <div className="mt-2 grid grid-cols-2 gap-2 p-2 border rounded-md max-h-40 overflow-y-auto">
                            {locations.map(loc => (
                                <label key={loc.id} className="flex items-center gap-2">
-                                   <input type="checkbox" checked={managedLocationIds.includes(loc.name)} onChange={()=>handleLocationToggle(loc.name)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                   <input type="checkbox" checked={managedLocationIds.includes(loc.id)} onChange={()=>handleLocationToggle(loc.id)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                                    {loc.name}
                                </label>
                            ))}
@@ -250,6 +248,7 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
 const RoleForm = ({ onSave, onCancel, role }: { onSave:(r:any)=>void, onCancel:()=>void, role:Role|null }) => {
     const [name, setName] = useState(role?.name || '');
     const [permissions, setPermissions] = useState<AppPermissions>(role?.permissions || {} as AppPermissions);
+    const [visibleReports, setVisibleReports] = useState<string[]>(role?.permissions?.visibleReports || []);
 
     const permissionNames: (keyof AppPermissions)[] = [
         'dashboard', 'itemBank', 'catalogs', 'templates', 'liveCounters', 
@@ -262,6 +261,15 @@ const RoleForm = ({ onSave, onCancel, role }: { onSave:(r:any)=>void, onCancel:(
         { key: 'allowEventCancellation', label: 'Allow cancelling confirmed events' }
     ];
 
+    const reportTypes = {
+        income: "Income Report",
+        expense: "Expense Report",
+        profitability: "Event Profitability",
+        sales: "Monthly Sales Report",
+        additionalPax: "Additional PAX Report",
+        salesFunnel: "Sales Funnel Report",
+    };
+
     const handlePermissionChange = (key: keyof AppPermissions, level: PermissionLevel) => {
         setPermissions(prev => ({...prev, [key]: level}));
     };
@@ -269,10 +277,23 @@ const RoleForm = ({ onSave, onCancel, role }: { onSave:(r:any)=>void, onCancel:(
     const handleBooleanPermissionChange = (key: keyof AppPermissions, checked: boolean) => {
         setPermissions(prev => ({ ...prev, [key]: checked }));
     };
+
+    const handleReportVisibilityChange = (reportKey: string, isVisible: boolean) => {
+        setVisibleReports(prev => {
+            const newSet = new Set(prev);
+            if (isVisible) {
+                newSet.add(reportKey);
+            } else {
+                newSet.delete(reportKey);
+            }
+            return Array.from(newSet);
+        });
+    };
     
     const handleSubmit = (e:React.FormEvent) => {
         e.preventDefault();
-        const data = { name, permissions };
+        const finalPermissions = { ...permissions, visibleReports };
+        const data = { name, permissions: finalPermissions };
         if (role) onSave({ ...data, id: role.id });
         else onSave(data);
     };
@@ -322,6 +343,26 @@ const RoleForm = ({ onSave, onCancel, role }: { onSave:(r:any)=>void, onCancel:(
                         </div>
                     ))}
                 </div>
+            </div>
+            
+            <div className="mt-4 pt-4 border-t">
+                 <h4 className="font-semibold mb-2">Report Visibility</h4>
+                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {Object.entries(reportTypes).map(([key, reportName]) => (
+                        <div key={key} className="flex items-center">
+                            <input
+                                type="checkbox"
+                                id={`report-${key}`}
+                                checked={visibleReports.includes(key)}
+                                onChange={(e) => handleReportVisibilityChange(key, e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <label htmlFor={`report-${key}`} className="ml-2 block text-sm">
+                                {reportName}
+                            </label>
+                        </div>
+                    ))}
+                 </div>
             </div>
 
              <div className="flex justify-end gap-3 pt-4">

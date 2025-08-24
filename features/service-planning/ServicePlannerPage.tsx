@@ -4,10 +4,11 @@
 
 
 
+
 import React, { useState, useMemo } from 'react';
 import { Event, Item, AppCategory } from '../../types';
 import { useItems, useServiceArticles, useAppCategories, useLiveCounters, useLiveCounterItems, useClients } from '../../contexts/AppContexts';
-import { primaryButton, secondaryButton, inputStyle } from '../../components/common/styles';
+import { primaryButton, secondaryButton, inputStyle, iconButton } from '../../components/common/styles';
 import { Save, ArrowLeft, UtensilsCrossed, Users, Download } from 'lucide-react';
 import { exportNameCardsToPdf } from '../../lib/export';
 
@@ -152,15 +153,17 @@ export const ServicePlannerPage: React.FC<ServicePlannerPageProps> = ({ event, o
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700">
-                <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                    Service Plan for: <span className="text-primary-600">{event.eventType}</span>
-                </h2>
+                <div className="flex items-center gap-4">
+                    <button type="button" onClick={onCancel} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}>
+                        <ArrowLeft size={20}/>
+                    </button>
+                    <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                        Service Plan for: <span className="text-primary-600">{event.eventType}</span>
+                    </h2>
+                </div>
                 <div className="flex items-center gap-2">
                     <button type="button" onClick={handleDownloadNameCards} className={secondaryButton}>
                         <Download size={16}/> Download Name Cards
-                    </button>
-                    <button type="button" onClick={onCancel} className={secondaryButton}>
-                        <ArrowLeft size={16}/> Back
                     </button>
                     {!isLocked && 
                         <button type="button" onClick={handleSave} className={primaryButton}>

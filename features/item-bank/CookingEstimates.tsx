@@ -1,13 +1,6 @@
-
-
-
-
-
-
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useAppCategories, useUnits, useItemAccompaniments } from '../../contexts/AppContexts';
-import { AppCategory, PermissionLevel, FinancialSetting, ItemAccompaniment } from '../../types';
+import { useAppCategories, useUnits, useItemAccompaniments, useItems } from '../../contexts/AppContexts';
+import { AppCategory, PermissionLevel, FinancialSetting, ItemAccompaniment, Item } from '../../types';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { inputStyle } from '../../components/common/styles';
 
@@ -22,17 +15,122 @@ function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
     return debounced;
 }
 
-const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, level = 0 }: {
+const parseFractionalInput = (value: string | number): number | undefined => {
+    if (typeof value === 'number') return value;
+    if (typeof value !== 'string' || value.trim() === '') return undefined;
+    
+    const trimmedValue = value.trim();
+    if (trimmedValue.includes('/')) {
+        const parts = trimmedValue.split('/');
+        if (parts.length === 2) {
+            const numerator = parseFloat(parts[0]);
+            const denominator = parseFloat(parts[1]);
+            if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
+                return numerator / denominator;
+            }
+        }
+    }
+    const num = parseFloat(trimmedValue);
+    return isNaN(num) ? undefined : num;
+};
+
+const ItemEstimateRow = ({ item, updateItem, canModify, units }: {
+    item: Item;
+    updateItem: (item: Item) => Promise<void>;
+    canModify: boolean;
+    units: FinancialSetting[];
+}) => {
+    const [localData, setLocalData] = useState({
+        baseQuantityPerPax: item.baseQuantityPerPax ?? '',
+        quantityUnit: item.quantityUnit ?? '',
+    });
+
+    useEffect(() => {
+        setLocalData({
+            baseQuantityPerPax: item.baseQuantityPerPax ?? '',
+            quantityUnit: item.quantityUnit ?? '',
+        });
+    }, [item]);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const debouncedUpdate = useCallback(debounce((updatedItem: Item) => {
+        if (canModify) {
+           updateItem(updatedItem);
+        }
+    }, 1200), [updateItem, canModify]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        const newLocalData = { ...localData, [name]: value };
+        setLocalData(newLocalData);
+        
+        debouncedUpdate({
+            ...item,
+            baseQuantityPerPax: parseFractionalInput(newLocalData.baseQuantityPerPax),
+            quantityUnit: newLocalData.quantityUnit,
+        });
+    };
+
+    return (
+        <div className="grid grid-cols-10 gap-4 items-center p-2 border-t border-warm-gray-100 dark:border-warm-gray-700/50 hover:bg-warm-gray-50 dark:hover:bg-warm-gray-700/30">
+            <div className="col-span-4 flex justify-end pr-4">
+                <span className="font-medium italic">{item.name}</span>
+            </div>
+            <div>
+                <input
+                    type="text"
+                    name="baseQuantityPerPax"
+                    value={localData.baseQuantityPerPax}
+                    onChange={handleChange}
+                    disabled={!canModify}
+                    className={inputStyle + " text-sm"}
+                    placeholder="e.g., 10 or 1/10"
+                />
+            </div>
+            <div>
+                 <select
+                    name="quantityUnit"
+                    value={localData.quantityUnit}
+                    onChange={handleChange}
+                    disabled={!canModify}
+                    className={inputStyle + " text-sm"}
+                >
+                    <option value="">-- Select Unit --</option>
+                    {units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (
+                        <option key={unit.id} value={unit.name}>{unit.name}</option>
+                    ))}
+                </select>
+            </div>
+            <div className="col-span-4 text-sm text-warm-gray-400">N/A</div>
+        </div>
+    );
+};
+
+
+const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, level = 0, allItems, updateItem }: {
     category: AppCategory;
     hierarchy: Map<string, AppCategory[]>;
     updateCategory: (category: AppCategory) => Promise<void>;
     canModify: boolean;
     units: FinancialSetting[];
     level?: number;
+    allItems: Item[];
+    updateItem: (item: Item) => Promise<void>;
 }) => {
     const [isOpen, setIsOpen] = useState(level < 1);
     const children = useMemo(() => hierarchy.get(category.id) || [], [hierarchy, category.id]);
-    
+    const itemsInCategory = useMemo(() => {
+        const descendantIds = new Set<string>();
+        const queue = [category.id];
+        while(queue.length > 0) {
+            const currentId = queue.shift()!;
+            descendantIds.add(currentId);
+            (hierarchy.get(currentId) || []).forEach(child => queue.push(child.id));
+        }
+        return allItems.filter(item => descendantIds.has(item.id))
+                       .sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+    }, [category.id, allItems, hierarchy]);
+
     const [localData, setLocalData] = useState({
         baseQuantityPerPax: category.baseQuantityPerPax ?? '',
         quantityUnit: category.quantityUnit ?? '',
@@ -44,6 +142,7 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
         quantityUnit_nonVeg: category.quantityUnit_nonVeg ?? '',
         additionalItemPercentage_nonVeg: category.additionalItemPercentage_nonVeg ?? '',
     });
+    const [useSingleEstimate, setUseSingleEstimate] = useState(category.useSingleCookingEstimate ?? false);
 
 
     // Sync with parent prop changes
@@ -58,6 +157,7 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
             quantityUnit_nonVeg: category.quantityUnit_nonVeg ?? '',
             additionalItemPercentage_nonVeg: category.additionalItemPercentage_nonVeg ?? '',
         });
+        setUseSingleEstimate(category.useSingleCookingEstimate ?? false);
     }, [category]);
     
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,16 +183,50 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
         
         debouncedUpdate({
             ...category,
-            baseQuantityPerPax: updatedLocalData.baseQuantityPerPax === '' ? undefined : Number(updatedLocalData.baseQuantityPerPax),
+            baseQuantityPerPax: parseFractionalInput(updatedLocalData.baseQuantityPerPax),
             quantityUnit: updatedLocalData.quantityUnit,
             additionalItemPercentage: updatedLocalData.additionalItemPercentage === '' ? undefined : Number(updatedLocalData.additionalItemPercentage),
-            baseQuantityPerPax_nonVeg: updatedLocalNonVegData.baseQuantityPerPax_nonVeg === '' ? undefined : Number(updatedLocalNonVegData.baseQuantityPerPax_nonVeg),
+            baseQuantityPerPax_nonVeg: parseFractionalInput(updatedLocalNonVegData.baseQuantityPerPax_nonVeg),
             quantityUnit_nonVeg: updatedLocalNonVegData.quantityUnit_nonVeg,
             additionalItemPercentage_nonVeg: updatedLocalNonVegData.additionalItemPercentage_nonVeg === '' ? undefined : Number(updatedLocalNonVegData.additionalItemPercentage_nonVeg),
         });
     };
+
+    const handleSingleEstimateToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!canModify) return;
+        const isChecked = e.target.checked;
+        setUseSingleEstimate(isChecked);
+        updateCategory({ ...category, useSingleCookingEstimate: isChecked });
+    };
     
-    const isVegCategory = category.type === 'veg';
+    const isNonVegCategory = category.type === 'non-veg';
+
+     if (category.isStandardAccompaniment) {
+        return (
+            <li className="list-none">
+                <div className="flex items-center gap-1 col-span-10 p-2 font-semibold bg-amber-50 dark:bg-amber-900/30 rounded-md my-2">
+                    <button onClick={() => setIsOpen(!isOpen)} className="p-1">
+                        {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
+                    {category.name} (Standard Accompaniments - Item Level Estimates)
+                </div>
+                {isOpen && (
+                    <ul>
+                        {itemsInCategory.map(item => (
+                            <li key={item.id}>
+                                <ItemEstimateRow 
+                                    item={item}
+                                    updateItem={updateItem}
+                                    canModify={canModify}
+                                    units={units}
+                                />
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </li>
+        );
+    }
 
     return (
         <li className="list-none">
@@ -104,22 +238,46 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
                         </button>
                     )}
                     <span className="font-semibold">{category.name}</span>
+                    {category.type !== 'non-veg' && !category.isStandardAccompaniment && (
+                        <label className="flex items-center gap-1.5 text-xs text-warm-gray-500 ml-4 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={useSingleEstimate}
+                                onChange={handleSingleEstimateToggle}
+                                disabled={!canModify}
+                                className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <span>Single Estimate</span>
+                        </label>
+                    )}
                 </div>
                 
                 {/* Veg Menu Estimates */}
-                <div><input type="number" name="baseQuantityPerPax" value={localData.baseQuantityPerPax} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 100"/></div>
-                <div><select name="quantityUnit" value={localData.quantityUnit} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"}><option value="">-- Unit --</option>{units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (<option key={unit.id} value={unit.name}>{unit.name}</option>))}</select></div>
-                <div><input type="number" name="additionalItemPercentage" value={localData.additionalItemPercentage} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 20"/></div>
+                {isNonVegCategory ? (
+                     <div className="col-span-3 text-center text-sm text-warm-gray-400 p-2 italic">N/A</div>
+                ) : (
+                    <>
+                        <div><input type="text" name="baseQuantityPerPax" value={localData.baseQuantityPerPax} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 100 or 5/100"/></div>
+                        <div><select name="quantityUnit" value={localData.quantityUnit} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"}><option value="">-- Unit --</option>{units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (<option key={unit.id} value={unit.name}>{unit.name}</option>))}</select></div>
+                        <div><input type="number" name="additionalItemPercentage" value={localData.additionalItemPercentage} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 20"/></div>
+                    </>
+                )}
                 
                 {/* Non-Veg Menu Estimates */}
-                {isVegCategory ? (
+                {isNonVegCategory ? (
+                     <>
+                        <div><input type="text" name="baseQuantityPerPax" value={localData.baseQuantityPerPax} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 150 or 15/100"/></div>
+                        <div><select name="quantityUnit" value={localData.quantityUnit} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"}><option value="">-- Unit --</option>{units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (<option key={unit.id} value={unit.name}>{unit.name}</option>))}</select></div>
+                        <div><input type="number" name="additionalItemPercentage" value={localData.additionalItemPercentage} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 20"/></div>
+                    </>
+                ) : useSingleEstimate ? (
+                     <div className="col-span-3 text-center text-sm text-warm-gray-400 p-2 italic">Uses VEG menu estimates</div>
+                ) : (
                     <>
-                        <div><input type="number" name="baseQuantityPerPax_nonVeg" value={localNonVegData.baseQuantityPerPax_nonVeg} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 75"/></div>
+                        <div><input type="text" name="baseQuantityPerPax_nonVeg" value={localNonVegData.baseQuantityPerPax_nonVeg} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 75 or 3/100"/></div>
                         <div><select name="quantityUnit_nonVeg" value={localNonVegData.quantityUnit_nonVeg} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"}><option value="">-- Unit --</option>{units.slice().sort((a,b) => a.name.localeCompare(b.name)).map(unit => (<option key={unit.id} value={unit.name}>{unit.name}</option>))}</select></div>
                         <div><input type="number" name="additionalItemPercentage_nonVeg" value={localNonVegData.additionalItemPercentage_nonVeg} onChange={handleChange} disabled={!canModify} className={inputStyle + " text-sm"} placeholder="e.g., 10"/></div>
                     </>
-                ) : (
-                    <div className="col-span-3 text-center text-sm text-warm-gray-400 p-2 italic">N/A</div>
                 )}
             </div>
             {isOpen && children.length > 0 && (
@@ -133,6 +291,8 @@ const CategoryNode = ({ category, hierarchy, updateCategory, canModify, units, l
                             canModify={canModify}
                             units={units}
                             level={level + 1}
+                            allItems={allItems}
+                            updateItem={updateItem}
                         />
                     ))}
                 </ul>
@@ -173,7 +333,7 @@ const AccompanimentRow = ({ accompaniment, updateAccompaniment, canModify, units
         
         debouncedUpdate({
             ...accompaniment,
-            baseQuantityPerPax: newLocalData.baseQuantityPerPax === '' ? undefined : Number(newLocalData.baseQuantityPerPax),
+            baseQuantityPerPax: parseFractionalInput(newLocalData.baseQuantityPerPax),
             quantityUnit: newLocalData.quantityUnit,
         });
     };
@@ -183,13 +343,13 @@ const AccompanimentRow = ({ accompaniment, updateAccompaniment, canModify, units
             <span className="font-semibold">{accompaniment.name}</span>
             <div>
                 <input
-                    type="number"
+                    type="text"
                     name="baseQuantityPerPax"
                     value={localData.baseQuantityPerPax}
                     onChange={handleChange}
                     disabled={!canModify}
                     className={inputStyle + " text-sm"}
-                    placeholder="e.g., 10"
+                    placeholder="e.g., 10 or 1/10"
                 />
             </div>
             <div>
@@ -216,6 +376,7 @@ export const CookingEstimates = ({ permissions }: { permissions: PermissionLevel
     const { categories, updateCategory } = useAppCategories();
     const { settings: units } = useUnits();
     const { settings: accompaniments, updateAccompaniment } = useItemAccompaniments();
+    const { items, updateItem } = useItems();
     const canModify = permissions === 'modify';
 
     const { roots, hierarchy } = useMemo(() => {
@@ -269,6 +430,8 @@ export const CookingEstimates = ({ permissions }: { permissions: PermissionLevel
                                     updateCategory={updateCategory}
                                     canModify={canModify}
                                     units={units}
+                                    allItems={items}
+                                    updateItem={updateItem}
                                 />
                             ))}
                         </ul>

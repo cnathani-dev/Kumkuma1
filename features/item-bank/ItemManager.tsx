@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useItems, useAppCategories } from '../../contexts/AppContexts';
 import { Item, AppCategory, ItemType, PermissionLevel } from '../../types';
@@ -26,6 +27,8 @@ const ItemTypeIcon = ({ type }: { type?: ItemType }) => {
             return <span title="Prawns"><Shrimp size={14} className="text-pink-600 flex-shrink-0" /></span>;
         case 'fish':
             return <span title="Fish"><Fish size={14} className="text-blue-600 flex-shrink-0" /></span>;
+        case 'crab':
+            return <span title="Crab"><Shrimp size={14} className="text-red-500 flex-shrink-0" /></span>;
         case 'other':
         default:
             return null;
@@ -36,7 +39,7 @@ type ModalState =
     | { type: 'category', data: AppCategory | Partial<AppCategory> | null }
     | { type: 'item', data: Item | null };
 
-const itemTypes: ItemType[] = ['veg', 'chicken', 'mutton', 'egg', 'prawns', 'fish', 'natukodi', 'other'];
+const itemTypes: ItemType[] = ['veg', 'chicken', 'mutton', 'egg', 'prawns', 'fish', 'natukodi', 'crab', 'other'];
 
 const MergeCategoryModal = ({ sourceCategory, allCategories, onCancel, onConfirm, destinationId, setDestinationId }: {
     sourceCategory: AppCategory,

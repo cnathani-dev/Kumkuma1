@@ -1,11 +1,118 @@
-import React, { useState } from 'react';
-import { useLocations, useChargeTypes, useExpenseTypes, usePaymentModes, useReferralSources, useServiceArticles, useUnits, useItemAccompaniments, useEventTypes, useRestaurants, useOrderTemplates } from '../../contexts/AppContexts';
-import { LocationSetting, FinancialSetting, EventTypeSetting, RestaurantSetting, OrderTemplate } from '../../types';
+import React, { useState, useMemo } from 'react';
+import { useLocations, useChargeTypes, useExpenseTypes, usePaymentModes, useReferralSources, useServiceArticles, useUnits, useItemAccompaniments, useEventTypes, useRestaurants, useOrderTemplates, useCompetitionSettings, useLostReasonSettings, useClientActivityTypeSettings } from '../../contexts/AppContexts';
+import { LocationSetting, FinancialSetting, EventTypeSetting, RestaurantSetting, OrderTemplate, LostReasonSetting, ClientActivityTypeSetting } from '../../types';
 import Modal from '../../components/Modal';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save, Merge } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, Merge, HelpCircle, Phone, Users, MapPin, ClipboardCheck, Mail, StickyNote, Calendar, MessageSquare } from 'lucide-react';
+import * as icons from 'lucide-react';
 
-type SettingType = 'locations' | 'eventTypes' | 'chargeTypes' | 'expenseTypes' | 'paymentModes' | 'referralSources' | 'serviceArticles' | 'units' | 'restaurants';
+type SettingType = 'locations' | 'eventTypes' | 'chargeTypes' | 'expenseTypes' | 'paymentModes' | 'referralSources' | 'serviceArticles' | 'units' | 'restaurants' | 'competition' | 'lostReasons' | 'clientActivityTypes';
+
+const LucideIcon = ({ name, ...props }: { name: string;[key: string]: any }) => {
+    const IconComponent = (icons as any)[name];
+    if (!IconComponent) {
+        return <HelpCircle {...props} />; // fallback icon
+    }
+    return <IconComponent {...props} />;
+};
+
+const iconOptions = [
+    { name: 'Phone', label: 'Phone Call' },
+    { name: 'Users', label: 'Meeting' },
+    { name: 'MapPin', label: 'Site Visit' },
+    { name: 'ClipboardCheck', label: 'Follow-up' },
+    { name: 'Mail', label: 'Quote/Email' },
+    { name: 'StickyNote', label: 'Note' },
+    { name: 'Calendar', label: 'Appointment' },
+    { name: 'MessageSquare', label: 'General' },
+];
+
+const ClientActivityTypeForm = ({ onSave, onCancel, setting }: {
+    onSave: (data: { id?: string, name: string, icon: string }) => void,
+    onCancel: () => void,
+    setting: ClientActivityTypeSetting | null,
+}) => {
+    const [name, setName] = useState(setting?.name || '');
+    const [icon, setIcon] = useState(setting?.icon || 'MessageSquare');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const data = { name, icon };
+        if (setting) onSave({ ...data, id: setting.id });
+        else onSave(data);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="text" placeholder="Type Name" value={name} onChange={e => setName(e.target.value)} required className={inputStyle} />
+            <div>
+                <label className="block text-sm font-medium">Icon</label>
+                <select value={icon} onChange={e => setIcon(e.target.value)} className={inputStyle}>
+                    {iconOptions.map(opt => <option key={opt.name} value={opt.name}>{opt.label}</option>)}
+                </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+                <button type="button" onClick={onCancel} className={secondaryButton}>Cancel</button>
+                <button type="submit" className={primaryButton}><Save size={18} /> Save</button>
+            </div>
+        </form>
+    );
+};
+
+
+const ClientActivityTypeSettings = ({ canModify }: { canModify: boolean }) => {
+    const { settings, addSetting, updateSetting, deleteSetting } = useClientActivityTypeSettings();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingSetting, setEditingSetting] = useState<ClientActivityTypeSetting | null>(null);
+
+    const handleSave = async (data: { id?: string, name: string, icon: string }) => {
+        if (!canModify) return;
+        try {
+            if (data.id) await updateSetting({ id: data.id, name: data.name, icon: data.icon });
+            else await addSetting({ name: data.name, icon: data.icon });
+            setIsModalOpen(false);
+        } catch (e) { alert(`Error: ${e}`); }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!canModify) return;
+        if (window.confirm("Are you sure?")) {
+            await deleteSetting(id);
+        }
+    };
+
+    return (
+        <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
+            {isModalOpen && <Modal isOpen={true} onClose={() => setIsModalOpen(false)} title={editingSetting ? `Edit Activity Type` : `Add Activity Type`}>
+                <ClientActivityTypeForm onSave={handleSave} onCancel={() => setIsModalOpen(false)} setting={editingSetting} />
+            </Modal>}
+            <div className="flex justify-end items-center gap-4 mb-4">
+                {canModify && <button onClick={() => { setEditingSetting(null); setIsModalOpen(true); }} className={primaryButton}><Plus size={16} /> Add Activity Type</button>}
+            </div>
+            <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                {settings.sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
+                    <li key={s.id} className="py-2 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <span className="p-2 bg-primary-100 rounded-full dark:bg-primary-900/50">
+                                <LucideIcon name={s.icon || 'HelpCircle'} className="text-primary-600 dark:text-primary-300" size={20} />
+                            </span>
+                            <span>{s.name}</span>
+                        </div>
+                        {canModify && <div className="flex gap-1">
+                            <button onClick={() => { setEditingSetting(s); setIsModalOpen(true); }} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title={`Edit Type`}>
+                                <Edit size={16} className="text-primary-600" />
+                            </button>
+                            <button onClick={() => handleDelete(s.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title={`Delete Type`}>
+                                <Trash2 size={16} className="text-accent-500" />
+                            </button>
+                        </div>}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
 
 export const SettingsManager = ({ canModify }: { canModify: boolean }) => {
     const [activeTab, setActiveTab] = useState<SettingType>('locations');
@@ -14,6 +121,9 @@ export const SettingsManager = ({ canModify }: { canModify: boolean }) => {
         { id: 'locations', name: 'Locations' },
         { id: 'restaurants', name: 'Restaurants' },
         { id: 'eventTypes', name: 'Event Types' },
+        { id: 'clientActivityTypes', name: 'Client Activity Types' },
+        { id: 'competition', name: 'Competition' },
+        { id: 'lostReasons', name: 'Lost Reasons' },
         { id: 'chargeTypes', name: 'Charge Types' },
         { id: 'expenseTypes', name: 'Expense Types' },
         { id: 'paymentModes', name: 'Payment Modes' },
@@ -42,6 +152,12 @@ export const SettingsManager = ({ canModify }: { canModify: boolean }) => {
                 return <FinancialSettings type="Service Article" contextHook={useServiceArticles} canModify={canModify} />;
             case 'units':
                 return <FinancialSettings type="Unit" contextHook={useUnits} canModify={canModify} />;
+            case 'competition':
+                return <FinancialSettings type="Competitor" contextHook={useCompetitionSettings} canModify={canModify} />;
+            case 'lostReasons':
+                return <LostReasonSettings canModify={canModify} />;
+            case 'clientActivityTypes':
+                return <ClientActivityTypeSettings canModify={canModify} />;
             default: return null;
         }
     };
@@ -322,3 +438,99 @@ const RestaurantSettings = ({ canModify }: { canModify: boolean }) => {
        </div>
     )
 }
+
+const LostReasonForm = ({ onSave, onCancel, setting, settings }: {
+    onSave: (data: {id?: string, name: string, isCompetitionReason: boolean}) => void,
+    onCancel: () => void,
+    setting: LostReasonSetting | null,
+    settings: LostReasonSetting[],
+}) => {
+    const [name, setName] = useState(setting?.name || '');
+    const [isCompetitionReason, setIsCompetitionReason] = useState(setting?.isCompetitionReason || false);
+    
+    const competitionReasonExists = useMemo(() => {
+        return settings.some(s => s.isCompetitionReason && s.id !== setting?.id);
+    }, [settings, setting]);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const data = { name, isCompetitionReason };
+        if (setting) onSave({ ...data, id: setting.id });
+        else onSave(data);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="text" placeholder="Reason Name" value={name} onChange={e => setName(e.target.value)} required className={inputStyle} />
+            <div className="flex items-center">
+                <input
+                    id="isCompetitionReason"
+                    type="checkbox"
+                    checked={isCompetitionReason}
+                    onChange={e => setIsCompetitionReason(e.target.checked)}
+                    disabled={competitionReasonExists && !isCompetitionReason}
+                    className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                />
+                <label htmlFor="isCompetitionReason" className="ml-2 block text-sm">
+                    This is the 'Competition' reason
+                </label>
+            </div>
+            {competitionReasonExists && isCompetitionReason && <p className="text-xs text-amber-600">Another reason is already marked as the competition reason. You must uncheck it before checking this one.</p>}
+            <div className="flex justify-end gap-3 pt-4">
+                <button type="button" onClick={onCancel} className={secondaryButton}>Cancel</button>
+                <button type="submit" className={primaryButton}><Save size={18}/> Save</button>
+            </div>
+        </form>
+    );
+};
+
+const LostReasonSettings = ({ canModify }: { canModify: boolean }) => {
+    const { settings, addSetting, updateSetting, deleteSetting } = useLostReasonSettings();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingSetting, setEditingSetting] = useState<LostReasonSetting | null>(null);
+
+    const handleSave = async (data: {id?: string, name: string, isCompetitionReason: boolean}) => {
+        if(!canModify) return;
+        try {
+            if (data.id) await updateSetting({id: data.id, name: data.name, isCompetitionReason: data.isCompetitionReason});
+            else await addSetting({name: data.name, isCompetitionReason: data.isCompetitionReason});
+            setIsModalOpen(false);
+        } catch(e) { alert(`Error: ${e}`); }
+    };
+    
+    const handleDelete = async (id: string) => {
+         if(!canModify) return;
+        if(window.confirm("Are you sure?")) {
+            await deleteSetting(id);
+        }
+    };
+
+    return (
+         <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
+            {isModalOpen && <Modal isOpen={true} onClose={() => setIsModalOpen(false)} title={editingSetting ? `Edit Lost Reason` : `Add Lost Reason`}>
+                <LostReasonForm onSave={handleSave} onCancel={() => setIsModalOpen(false)} setting={editingSetting} settings={settings} />
+            </Modal>}
+             <div className="flex justify-end items-center gap-4 mb-4">
+                {canModify && <button onClick={() => { setEditingSetting(null); setIsModalOpen(true); }} className={primaryButton}><Plus size={16}/> Add Reason</button>}
+            </div>
+            <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
+                {settings.sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
+                    <li key={s.id} className="py-2 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <span>{s.name}</span>
+                            {s.isCompetitionReason && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">Competition Reason</span>}
+                        </div>
+                        {canModify && <div className="flex gap-1">
+                             <button onClick={() => {setEditingSetting(s); setIsModalOpen(true);}} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title={`Edit Reason`}>
+                                <Edit size={16} className="text-primary-600" />
+                            </button>
+                            <button onClick={() => handleDelete(s.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title={`Delete Reason`}>
+                                <Trash2 size={16} className="text-accent-500" />
+                            </button>
+                        </div>}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};

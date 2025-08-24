@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo } from 'react';
 import { useTemplates, useClients, useAppCategories, useItems, useOrders, useRecipes, usePlatters, useRawMaterials, useOrderTemplates, useUnits, useLiveCounters, useLiveCounterItems } from '../contexts/AppContexts';
 import { useUserPermissions } from '../contexts/AuthContext';
-import { Catalog, Client, Event, MenuTemplate, AppPermissions, UserRole, Order, Recipe, Platter, RawMaterial, OrderTemplate, LiveCounter, LiveCounterItem, Item, AppCategory } from '../types';
+import { Catalog, Client, Event, MenuTemplate, AppPermissions, UserRole, Order, Recipe, Platter, RawMaterial, OrderTemplate, LiveCounter, LiveCounterItem, Item, AppCategory, EventState } from '../types';
 import { AuditLogViewer } from '../features/audit/AuditLogViewer';
 import { CatalogEditor, CatalogManager } from '../features/catalogs/CatalogManager';
 import { ClientList } from '../features/clients/ClientList';
@@ -283,7 +284,7 @@ const RawMaterialsManager: React.FC<{}> = () => {
 };
 
 const OrderTemplatesManager: React.FC<{}> = () => {
-    const { orderTemplates, deleteOrderTemplate } = useOrderTemplates();
+    const { orderTemplates, deleteOrderTemplate, updateOrderTemplate } = useOrderTemplates();
     const { recipes } = useRecipes();
     const { platters } = usePlatters();
     
@@ -291,6 +292,17 @@ const OrderTemplatesManager: React.FC<{}> = () => {
 
     const handleDownload = (template: OrderTemplate) => {
         exportOrderTemplateToPdf(template, recipes, platters);
+    };
+
+    const handleRename = async (template: OrderTemplate) => {
+        const newName = window.prompt("Enter new name for the template:", template.name);
+        if (newName && newName.trim() && newName.trim() !== template.name) {
+            try {
+                await updateOrderTemplate({ ...template, name: newName.trim() });
+            } catch (e) {
+                alert(`Error renaming template: ${e}`);
+            }
+        }
     };
 
     return (
@@ -304,6 +316,9 @@ const OrderTemplatesManager: React.FC<{}> = () => {
                             <button onClick={() => handleDownload(template)} className={iconButton('hover:bg-green-100 dark:hover:bg-green-800/50')} title="Download Order Form">
                                 <Download size={16} className="text-green-600"/>
                             </button>
+                            <button onClick={() => handleRename(template)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800/50')} title="Rename Template">
+                                <Edit size={16} className="text-primary-600"/>
+                            </button>
                             <button onClick={() => handleDelete(template.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800/50')} title="Delete Template">
                                 <Trash2 size={16} className="text-accent-500"/>
                             </button>
@@ -315,17 +330,20 @@ const OrderTemplatesManager: React.FC<{}> = () => {
     )
 };
 
+type EventFilter = 'upcoming' | 'leads' | 'finalize' | 'collect' | null;
 
 // Main Admin Page Component
-function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvents, clients, clientListFilters, setClientListFilters }: {
+function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvents, clients, clientListFilters, setClientListFilters, dashboardState, setDashboardState }: {
     activePage: 'dashboard' | 'clients' | 'itemBank' | 'catalogs' | 'templates' | 'liveCounters' | 'reports' | 'users' | 'audit' | 'dataHub' | 'settings' | 'orders' | 'orderTemplates' | 'platters' | 'recipes' | 'rawMaterials';
-    onNavigate: (page: 'dashboard' | 'clients', clientId?: string, eventId?: string, action?: 'editEvent' | 'viewMenu') => void,
+    onNavigate: (clientId: string) => void,
     permissions: AppPermissions,
     userRole: UserRole,
     managedEvents: Event[],
     clients: Client[],
-    clientListFilters: { name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string },
-    setClientListFilters: React.Dispatch<React.SetStateAction<{ name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string }>>
+    clientListFilters: { name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string, stateChangeFilters: { state: EventState, period: 'this_week' } | null },
+    setClientListFilters: React.Dispatch<React.SetStateAction<{ name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string, stateChangeFilters: { state: EventState, period: 'this_week' } | null }>>,
+    dashboardState: { view: 'grid' | 'calendar', dateFilter: string | null, activeFilter: EventFilter, selectedLocations: string[] },
+    setDashboardState: React.Dispatch<React.SetStateAction<{ view: 'grid' | 'calendar', dateFilter: string | null, activeFilter: EventFilter, selectedLocations: string[] }>>
 }) {
     // These states manage the full-page editor views
     const [editingTemplate, setEditingTemplate] = useState<MenuTemplate | null>(null);
@@ -440,16 +458,25 @@ function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvent
                         showStats={false}
                         eventsFilter={kitchenEventsFilter}
                         onNavigateToMenu={handleKitchenNavigation}
+                        dashboardState={dashboardState}
+                        setDashboardState={setDashboardState}
+                        clients={clients}
                     />;
                 }
                 if (permissions.dashboard === 'none') return <AccessDenied />;
-                return <Dashboard onNavigate={onNavigate} managedEvents={managedEvents} />;
+                return <Dashboard 
+                    onNavigate={onNavigate} 
+                    managedEvents={managedEvents} 
+                    dashboardState={dashboardState} 
+                    setDashboardState={setDashboardState}
+                    clients={clients}
+                />;
             case 'clients':
                 if (permissions.clientsAndEvents === 'none') return <AccessDenied />;
                 return <ClientList 
                             clients={clients} 
                             events={managedEvents}
-                            onNavigate={(page, clientId) => onNavigate(page, clientId)} 
+                            onClientClick={onNavigate} 
                             filters={clientListFilters}
                             setFilters={setClientListFilters}
                         />;
@@ -473,7 +500,7 @@ function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvent
                 return <LiveCounterManager canModify={permissions.liveCounters === 'modify'} />;
             case 'reports':
                 if (permissions.reports === 'none') return <AccessDenied />;
-                return <ReportsManager managedEvents={managedEvents} />;
+                return <ReportsManager managedEvents={managedEvents} permissions={permissions} userRole={userRole} />;
             case 'users':
                 if (permissions.users === 'none') return <AccessDenied />;
                 return <UserAndRoleManager canModify={permissions.users === 'modify'} />;
@@ -501,7 +528,13 @@ function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvent
 
             default:
                 if (userRole !== 'kitchen' && permissions.dashboard === 'none') return <AccessDenied />;
-                return <Dashboard onNavigate={onNavigate} managedEvents={managedEvents} />;
+                return <Dashboard 
+                    onNavigate={onNavigate} 
+                    managedEvents={managedEvents} 
+                    dashboardState={dashboardState} 
+                    setDashboardState={setDashboardState}
+                    clients={clients}
+                />;
         }
     }
 

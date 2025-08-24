@@ -12,43 +12,43 @@ const statusColors: Record<EventState, string> = {
     cancelled: '#a3a3a3', // warm-gray-400
 };
 
-export const CalendarView = ({ events, onDateSelect, clients }: { 
+export const CalendarView = ({ events, onDateSelect, clients, selectedLocations, onLocationChange }: { 
     events: Event[], 
     onDateSelect: (date: string) => void,
     clients: Client[],
+    selectedLocations: string[],
+    onLocationChange: (locations: string[]) => void,
 }) => {
     const { locations } = useLocations();
     const { muhurthamDates, addMuhurthamDate, deleteMuhurthamDateByDate } = useMuhurthamDates();
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, date: string } | null>(null);
 
     const clientMap = useMemo(() => new Map(clients.map(c => [c.id, c.name])), [clients]);
     const locationColorMap = useMemo(() => new Map(locations.map(loc => [loc.name, loc.color || '#fff8e1'])), [locations]);
     const muhurthamDatesSet = useMemo(() => new Set(muhurthamDates.map(d => d.date)), [muhurthamDates]);
+    const selectedLocationsSet = useMemo(() => new Set(selectedLocations), [selectedLocations]);
 
     const changeMonth = (offset: number) => {
         setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
     };
 
     const handleLocationToggle = (locationName: string) => {
-        setSelectedLocations(prev => {
-            const newSet = new Set(prev);
-            if (locationName === 'ALL') {
-                newSet.clear();
-            } else if (newSet.has(locationName)) {
-                newSet.delete(locationName);
-            } else {
-                newSet.add(locationName);
-            }
-            return newSet;
-        });
+        const newSet = new Set(selectedLocations);
+        if (locationName === 'ALL') {
+            newSet.clear();
+        } else if (newSet.has(locationName)) {
+            newSet.delete(locationName);
+        } else {
+            newSet.add(locationName);
+        }
+        onLocationChange(Array.from(newSet));
     };
     
     const filteredEvents = useMemo(() => {
-        if (selectedLocations.size === 0) return events;
-        return events.filter(event => selectedLocations.has(event.location));
-    }, [events, selectedLocations]);
+        if (selectedLocationsSet.size === 0) return events;
+        return events.filter(event => selectedLocationsSet.has(event.location));
+    }, [events, selectedLocationsSet]);
 
     const { monthGrid, calendarStart, calendarEnd } = useMemo(() => {
         const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
@@ -186,9 +186,9 @@ export const CalendarView = ({ events, onDateSelect, clients }: {
             </div>
              <div className="flex flex-wrap items-center gap-2 mb-4 p-2 rounded-md bg-warm-gray-50 dark:bg-warm-gray-900/40">
                 <span className="text-sm font-semibold mr-2">Filter:</span>
-                 <button onClick={() => handleLocationToggle('ALL')} className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedLocations.size === 0 ? 'bg-primary-500 text-white border-primary-500' : 'bg-transparent border-warm-gray-300'}`}>All</button>
+                 <button onClick={() => handleLocationToggle('ALL')} className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedLocations.length === 0 ? 'bg-primary-500 text-white border-primary-500' : 'bg-transparent border-warm-gray-300'}`}>All</button>
                  {allLocationOptions.map(loc => (
-                     <button key={loc.id} onClick={() => handleLocationToggle(loc.name)} className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedLocations.has(loc.name) ? 'ring-2 ring-primary-500' : 'opacity-70'}`} style={{backgroundColor: loc.color}}>
+                     <button key={loc.id} onClick={() => handleLocationToggle(loc.name)} className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedLocations.includes(loc.name) ? 'ring-2 ring-primary-500' : 'opacity-70'}`} style={{backgroundColor: loc.color}}>
                          {loc.name}
                      </button>
                  ))}
@@ -234,7 +234,7 @@ export const CalendarView = ({ events, onDateSelect, clients }: {
                                                             <span className={`w-2 h-2 rounded-full ${statusColor} flex-shrink-0`} title={event.state}></span>
                                                             <div className="overflow-hidden">
                                                                 <p className="font-semibold text-black/80 truncate">{clientName}</p>
-                                                                <p className="text-xs text-black/60 truncate">{event.eventType}</p>
+                                                                <p className="text-xs text-black/60 truncate">{event.eventType} ({event.pax} PAX)</p>
                                                             </div>
                                                         </div>
                                                         <div
@@ -274,7 +274,7 @@ export const CalendarView = ({ events, onDateSelect, clients }: {
                                             <span className={`w-2 h-2 rounded-full flex-shrink-0`} style={{ backgroundColor: statusColors[event.state] }} title={event.state}></span>
                                             <div className="overflow-hidden">
                                                 <p className="font-semibold text-black/80 leading-tight truncate">{clientName}</p>
-                                                <p className="text-xs text-black/60 leading-tight truncate">{event.eventType}</p>
+                                                <p className="text-xs text-black/60 leading-tight truncate">{event.eventType} ({event.pax} PAX)</p>
                                             </div>
                                         </div>
                                     </div>

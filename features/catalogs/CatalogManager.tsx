@@ -1,10 +1,14 @@
 
 
+
+
+
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Catalog, Item, AppCategory, ItemType } from '../../types';
 import { useCatalogs, useItems, useAppCategories } from '../../contexts/AppContexts';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save, X, Leaf, Egg, Beef, Shrimp, Fish, Drumstick } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, X, Leaf, Egg, Beef, Shrimp, Fish, Drumstick, Copy, ArrowLeft } from 'lucide-react';
 import { CategoryTree } from '../../components/CategoryTree';
 
 interface CatalogManagerProps {
@@ -14,7 +18,7 @@ interface CatalogManagerProps {
 }
 
 export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAddClick, onEditClick }) => {
-    const { catalogs, deleteCatalog } = useCatalogs();
+    const { catalogs, addCatalog, deleteCatalog, updateCatalogGroup } = useCatalogs();
 
     const groupedCatalogs = useMemo(() => {
         const groups: Record<string, Catalog[]> = {};
@@ -41,6 +45,29 @@ export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAdd
             }
         }
     };
+
+    const handleCopy = async (catalogToCopy: Catalog) => {
+        const { id, ...restOfCatalog } = catalogToCopy;
+        const newCatalogData: Omit<Catalog, 'id'> = {
+            ...restOfCatalog,
+            name: `Copy of ${catalogToCopy.name}`
+        };
+        try {
+            const newId = await addCatalog(newCatalogData);
+            onEditClick({ ...newCatalogData, id: newId });
+        } catch (error) {
+            console.error("Failed to copy catalog:", error);
+            alert("Could not copy the catalog.");
+        }
+    };
+
+    const handleRenameGroup = (oldName: string) => {
+        if (!canModify) return;
+        const newName = window.prompt(`Rename group "${oldName}" to:`, oldName);
+        if (newName && newName.trim() && newName.trim() !== oldName) {
+            updateCatalogGroup(oldName, newName.trim());
+        }
+    };
     
 
     return (
@@ -59,7 +86,14 @@ export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAdd
                 ) : (
                     sortedGroupNames.map(groupName => (
                         <div key={groupName} className="mb-6 last:mb-0">
-                            <h4 className="text-xl font-semibold text-primary-600 dark:text-primary-400 mb-2 p-2 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-md">{groupName}</h4>
+                            <div className="flex items-center gap-2 p-2 bg-warm-gray-50 dark:bg-warm-gray-800/50 rounded-md mb-2">
+                                <h4 className="text-xl font-semibold text-primary-600 dark:text-primary-400">{groupName}</h4>
+                                {canModify && (
+                                    <button onClick={() => handleRenameGroup(groupName)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Rename Group">
+                                        <Edit size={14} className="text-primary-600"/>
+                                    </button>
+                                )}
+                            </div>
                             <ul className="pl-4 divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
                                 {groupedCatalogs[groupName].map(catalog => (
                                     <li key={catalog.id} className="py-3 flex justify-between items-center">
@@ -69,6 +103,9 @@ export const CatalogManager: React.FC<CatalogManagerProps> = ({ canModify, onAdd
                                         </div>
                                         {canModify &&
                                             <div className="flex items-center gap-1">
+                                                <button onClick={() => handleCopy(catalog)} className={iconButton('hover:bg-blue-100 dark:hover:bg-blue-800')} title="Copy Catalog">
+                                                    <Copy size={16} className="text-blue-600" />
+                                                </button>
                                                 <button onClick={() => onEditClick(catalog)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit Catalog">
                                                     <Edit size={16} className="text-primary-600" />
                                                 </button>
@@ -104,6 +141,8 @@ const ItemTypeIcon = ({ type }: { type?: ItemType }) => {
             return <span title="Prawns"><Shrimp size={14} className="text-pink-600 flex-shrink-0" /></span>;
         case 'fish':
             return <span title="Fish"><Fish size={14} className="text-blue-600 flex-shrink-0" /></span>;
+        case 'crab':
+            return <span title="Crab"><Shrimp size={14} className="text-red-500 flex-shrink-0" /></span>;
         default:
             return null;
     }
@@ -286,11 +325,13 @@ export const CatalogEditor: React.FC<CatalogEditorProps> = ({ catalog, onCancel,
     return (
         <form onSubmit={handleSubmit} className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
             <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700 flex-shrink-0">
-                <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                    {isReadOnly ? 'View Catalog' : ('id' in catalog ? 'Edit Catalog' : 'Create New Catalog')}
-                </h2>
+                <div className="flex items-center gap-4">
+                    <button type="button" onClick={onCancel} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}><ArrowLeft size={20}/></button>
+                    <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                        {isReadOnly ? 'View Catalog' : ('id' in catalog ? 'Edit Catalog' : 'Create New Catalog')}
+                    </h2>
+                </div>
                 <div className="flex items-center gap-2">
-                    <button type="button" onClick={onCancel} className={secondaryButton}><X size={16}/> {isReadOnly ? 'Close' : 'Cancel'}</button>
                     {!isReadOnly && <button type="submit" className={primaryButton}><Save size={18}/> Save Catalog</button>}
                 </div>
             </div>

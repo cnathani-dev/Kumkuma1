@@ -51,7 +51,10 @@ export const useUserPermissions = () => {
                 financeCharges: 'modify',
                 financePayments: 'modify',
                 financeExpenses: 'modify',
+                competition: 'modify',
+                lostReasons: 'modify',
                 muhurthams: 'modify',
+                clientActivityTypes: 'modify',
                 allowEventCancellation: true,
             };
             return allPermissions;
@@ -78,7 +81,10 @@ export const useUserPermissions = () => {
                 financeCharges: 'none',
                 financePayments: 'none',
                 financeExpenses: 'none',
+                competition: 'none',
+                lostReasons: 'none',
                 muhurthams: 'none',
+                clientActivityTypes: 'none',
                 allowEventCancellation: false,
             };
             return NO_ACCESS_PERMISSIONS;

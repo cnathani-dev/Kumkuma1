@@ -3,10 +3,12 @@
 
 
 
+
+
 import React, { useState } from 'react';
 import { Event } from '../../types';
 import { useLiveCounters, useLiveCounterItems } from '../../contexts/AppContexts';
-import { primaryButton, secondaryButton } from '../../components/common/styles';
+import { primaryButton, secondaryButton, iconButton } from '../../components/common/styles';
 import { Save, ArrowLeft } from 'lucide-react';
 
 export const LiveCounterSelectorPage = ({ event, onSave, onCancel, canModify }: {
@@ -49,13 +51,15 @@ export const LiveCounterSelectorPage = ({ event, onSave, onCancel, canModify }: 
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
              <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700 mb-6">
-                <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                    Live Counters for: <span className="text-primary-600">{event.eventType}</span>
-                </h2>
-                <div className="flex items-center gap-2">
-                     <button type="button" onClick={onCancel} className={secondaryButton}>
-                        <ArrowLeft size={16}/> Back
+                <div className="flex items-center gap-4">
+                    <button type="button" onClick={onCancel} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}>
+                        <ArrowLeft size={20}/>
                     </button>
+                    <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                        Live Counters for: <span className="text-primary-600">{event.eventType}</span>
+                    </h2>
+                </div>
+                <div className="flex items-center gap-2">
                     {!isLocked && 
                         <button type="submit" className={primaryButton}>
                             <Save size={18} /> Save Counters

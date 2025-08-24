@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Platter, PlatterRecipe, Recipe } from '../../types';
 import { useRecipes } from '../../contexts/AppContexts';
-import { primaryButton, secondaryButton, inputStyle } from '../../components/common/styles';
+import { primaryButton, secondaryButton, inputStyle, iconButton } from '../../components/common/styles';
 import { Save, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 
 const RecipeSearchInput = ({
@@ -95,24 +95,44 @@ export const PlatterEditorPage = ({ platter: initialPlatter, onSave, onBack }: {
 
     const [name, setName] = useState(initialPlatter?.name || '');
     const [platterRecipes, setPlatterRecipes] = useState<(PlatterRecipe & { tempId: string })[]>(
-        (initialPlatter?.recipes || []).map(r => ({ ...r, tempId: uuidv4() }))
+        (initialPlatter?.recipes || []).map((r_any: any) => {
+            // This logic handles migration for platters that might have been saved in the old format.
+            if (r_any.quantity !== undefined && r_any.unit !== undefined) {
+                return { ...(r_any as PlatterRecipe), tempId: uuidv4() };
+            }
+            return {
+                recipeId: r_any.recipeId,
+                quantity: r_any.quantityMl || 0,
+                unit: 'ml',
+                tempId: uuidv4(),
+            };
+        })
     );
 
     const handleAddRecipeRow = () => {
-        setPlatterRecipes([...platterRecipes, { recipeId: '', quantityMl: 0, tempId: uuidv4() }]);
+        setPlatterRecipes([...platterRecipes, { recipeId: '', quantity: 0, unit: '', tempId: uuidv4() }]);
     };
 
     const handleRemoveRecipeRow = (tempId: string) => {
         setPlatterRecipes(platterRecipes.filter(r => r.tempId !== tempId));
     };
 
-    const handleRecipeChange = (tempId: string, field: 'recipeId' | 'quantityMl', value: any) => {
+    const handleRecipeChange = (tempId: string, field: 'recipeId' | 'quantity', value: any) => {
         const index = platterRecipes.findIndex(r => r.tempId === tempId);
         if (index === -1) return;
 
         const updatedRecipes = [...platterRecipes];
-        const newValue = field === 'quantityMl' ? (Number(value) < 0 ? 0 : Number(value)) : value;
-        updatedRecipes[index] = { ...updatedRecipes[index], [field]: newValue };
+        let newRecipeData = { ...updatedRecipes[index] };
+
+        if (field === 'recipeId') {
+            const selectedRecipe = sortedRecipes.find(r => r.id === value);
+            newRecipeData.recipeId = value;
+            newRecipeData.unit = selectedRecipe?.defaultOrderingUnit || selectedRecipe?.yieldUnit || '';
+        } else { // quantity
+            newRecipeData.quantity = Number(value) < 0 ? 0 : Number(value);
+        }
+        
+        updatedRecipes[index] = newRecipeData;
         setPlatterRecipes(updatedRecipes);
     };
 
@@ -120,7 +140,7 @@ export const PlatterEditorPage = ({ platter: initialPlatter, onSave, onBack }: {
         e.preventDefault();
         
         const finalRecipes = platterRecipes
-            .filter(r => r.recipeId && r.quantityMl > 0)
+            .filter(r => r.recipeId && r.quantity > 0 && r.unit)
             .map(({ tempId, ...rest }) => rest);
         
         if (finalRecipes.length === 0) {
@@ -139,13 +159,15 @@ export const PlatterEditorPage = ({ platter: initialPlatter, onSave, onBack }: {
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
             <div className="flex justify-between items-center pb-4 border-b border-warm-gray-200 dark:border-warm-gray-700">
-                <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
-                    {initialPlatter ? "Edit Platter" : "Create New Platter"}
-                </h2>
-                <div className="flex items-center gap-2">
-                    <button type="button" onClick={onBack} className={secondaryButton}>
-                        <ArrowLeft size={16}/> Back
+                <div className="flex items-center gap-4">
+                    <button type="button" onClick={onBack} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}>
+                        <ArrowLeft size={20}/>
                     </button>
+                    <h2 className="text-3xl font-display font-bold text-warm-gray-800 dark:text-primary-100">
+                        {initialPlatter ? "Edit Platter" : "Create New Platter"}
+                    </h2>
+                </div>
+                <div className="flex items-center gap-2">
                     <button type="submit" className={primaryButton}>
                         <Save size={18} /> Save Platter
                     </button>
@@ -173,22 +195,26 @@ export const PlatterEditorPage = ({ platter: initialPlatter, onSave, onBack }: {
                     </div>
 
                     <div className="space-y-2">
-                        {platterRecipes.map((pRecipe) => (
-                            <div key={pRecipe.tempId} className="flex items-center gap-2">
-                                <RecipeSearchInput
-                                    recipes={sortedRecipes}
-                                    value={pRecipe.recipeId}
-                                    onSelect={(recipeId) => handleRecipeChange(pRecipe.tempId, 'recipeId', recipeId)}
-                                />
-                                <input type="number" placeholder="Qty" value={pRecipe.quantityMl || ''} onChange={e => handleRecipeChange(pRecipe.tempId, 'quantityMl', e.target.value)} className={inputStyle + " w-24 text-right"} min="0" step="any"/>
-                                <span className="w-16 text-sm text-gray-500 text-left">ml</span>
-                                <div className="w-10 flex justify-center">
-                                    <button type="button" onClick={() => handleRemoveRecipeRow(pRecipe.tempId)} className="text-accent-500 p-2 rounded-full hover:bg-accent-100 dark:hover:bg-accent-900/50">
-                                        <Trash2 size={16}/>
-                                    </button>
+                        {platterRecipes.map((pRecipe) => {
+                             const recipeDetails = sortedRecipes.find(r => r.id === pRecipe.recipeId);
+                             const displayUnit = pRecipe.unit || recipeDetails?.defaultOrderingUnit || recipeDetails?.yieldUnit || '...';
+                            return (
+                                <div key={pRecipe.tempId} className="flex items-center gap-2">
+                                    <RecipeSearchInput
+                                        recipes={sortedRecipes}
+                                        value={pRecipe.recipeId}
+                                        onSelect={(recipeId) => handleRecipeChange(pRecipe.tempId, 'recipeId', recipeId)}
+                                    />
+                                    <input type="number" placeholder="Qty" value={pRecipe.quantity || ''} onChange={e => handleRecipeChange(pRecipe.tempId, 'quantity', e.target.value)} className={inputStyle + " w-24 text-right"} min="0" step="any"/>
+                                    <span className="w-16 text-sm text-gray-500 text-left">{displayUnit}</span>
+                                    <div className="w-10 flex justify-center">
+                                        <button type="button" onClick={() => handleRemoveRecipeRow(pRecipe.tempId)} className="text-accent-500 p-2 rounded-full hover:bg-accent-100 dark:hover:bg-accent-900/50">
+                                            <Trash2 size={16}/>
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                     <button type="button" onClick={handleAddRecipeRow} className={`${secondaryButton} mt-4`}>
                         <Plus size={16}/> Add Recipe

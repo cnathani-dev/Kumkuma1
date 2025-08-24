@@ -14,7 +14,7 @@ interface EventCardProps {
     onEdit: () => void;
     onDelete: () => void;
     onDuplicate: () => void;
-    onNavigate: (state: 'MENU_CREATOR' | 'LIVE_COUNTER_SELECTOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN') => void;
+    onNavigate: (state: 'MENU_CREATOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN') => void;
     canModify: boolean;
     canAccessFinances: boolean;
     showClientName?: boolean;
@@ -143,11 +143,6 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, o
                                         <button onClick={() => onNavigate('MENU_CREATOR')} className={secondaryButton}>
                                             <FileEdit size={16}/> {isReadOnly ? 'View Menu' : 'Edit Menu'}
                                         </button>
-                                        {(template?.allowLiveCounters === true) && (
-                                            <button onClick={() => onNavigate('LIVE_COUNTER_SELECTOR')} className={secondaryButton}>
-                                                <Salad size={16}/> {isReadOnly ? 'View' : 'Edit'} Counters
-                                            </button>
-                                        )}
                                         {!menuFinalized && !isReadOnly && (
                                             <button onClick={handleClientFinalize} className={primaryButton}>
                                                 Finalize Menu
@@ -163,11 +158,6 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, o
                                         <button onClick={() => onNavigate('MENU_CREATOR')} className={secondaryButton} disabled={!showMenuButtons}>
                                             <FileEdit size={16}/> {isReadOnly ? 'View Menu' : 'Edit Menu'}
                                         </button>
-                                        {(template?.allowLiveCounters ?? true) && (
-                                            <button onClick={() => onNavigate('LIVE_COUNTER_SELECTOR')} className={secondaryButton} disabled={!showMenuButtons}>
-                                                <Salad size={16}/> {isReadOnly ? 'View' : 'Edit'} Counters
-                                            </button>
-                                        )}
                                         <button onClick={() => onNavigate('SERVICE_PLANNER')} className={secondaryButton} disabled={isReadOnly}>
                                             <ConciergeBell size={16}/> Service Plan
                                         </button>

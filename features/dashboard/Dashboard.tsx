@@ -1,19 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { useEvents, useClients } from '../../contexts/AppContexts';
+import { useEvents, useClients, useCompetitionSettings, useLostReasonSettings } from '../../contexts/AppContexts';
 import { useAuth, useUserPermissions } from '../../contexts/AuthContext';
-import { Event, EventSession, EventState, StateChangeHistoryEntry, PermissionLevel, UserRole } from '../../types';
+import { Event, EventSession, EventState, StateChangeHistoryEntry, PermissionLevel, UserRole, Client } from '../../types';
 import { EventCard } from '../../components/EventCard';
 import MenuCreator from '../menu-creator/MenuCreator';
-import { LiveCounterSelectorPage } from '../live-counters/LiveCounterSelectorPage';
 import { FinanceManager } from '../finance/FinanceManager';
 import { StatCard } from './StatCard';
 import { CalendarView } from './CalendarView';
-import { secondaryButton, dangerButton, inputStyle } from '../../components/common/styles';
+import { secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
 import { LayoutGrid, Calendar as CalendarIcon, ArrowLeft, X, CalendarDays, BadgeHelp, FileSignature, CircleDollarSign } from 'lucide-react';
 import { ServicePlannerPage } from '../service-planning/ServicePlannerPage';
 import { KitchenPlanPage } from '../kitchen-plan/KitchenPlanPage';
 import Modal from '../../components/Modal';
 import { formatYYYYMMDD, yyyyMMDDToDate } from '../../lib/utils';
+import { EventForm } from '../../components/forms/EventForm';
 
 const calculateFinancials = (event: Event) => {
     const model = event.pricingModel || 'variable';
@@ -37,33 +37,47 @@ const calculateFinancials = (event: Event) => {
     return { totalBill, totalPayments, totalExpenses, balanceDue, profit };
 };
 
-export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showStats = true, eventsFilter }: {
-    onNavigate: (page: 'clients' | 'dashboard', clientId?: string, eventId?: string, action?: 'editEvent' | 'viewMenu') => void,
+type EventFilter = 'upcoming' | 'leads' | 'finalize' | 'collect' | null;
+
+export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showStats = true, eventsFilter, dashboardState, setDashboardState, clients }: {
+    onNavigate: (clientId: string) => void,
     managedEvents: Event[],
-    onNavigateToMenu?: (event: Event, state: 'MENU_CREATOR' | 'LIVE_COUNTER_SELECTOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN') => void,
+    onNavigateToMenu?: (event: Event, state: 'MENU_CREATOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN') => void,
     showStats?: boolean;
     eventsFilter?: (events: Event[]) => Event[];
+    dashboardState: { view: 'grid' | 'calendar', dateFilter: string | null, activeFilter: EventFilter, selectedLocations: string[] },
+    setDashboardState: React.Dispatch<React.SetStateAction<{ view: 'grid' | 'calendar', dateFilter: string | null, activeFilter: EventFilter, selectedLocations: string[] }>>,
+    clients: Client[],
 }) => {
     const { updateEvent, deleteEvent, duplicateEvent } = useEvents();
-    const { clients } = useClients();
     const { currentUser } = useAuth();
     const permissions = useUserPermissions();
+    const { settings: competitionSettings } = useCompetitionSettings();
+    const { settings: lostReasonSettings } = useLostReasonSettings();
 
-    const [view, setView] = useState<'grid' | 'calendar'>('calendar');
-    type EventFilter = 'upcoming' | 'leads' | 'finalize' | 'collect' | null;
-    const [activeFilter, setActiveFilter] = useState<EventFilter>('upcoming');
-    const [dateFilter, setDateFilter] = useState<string | null>(null);
+    const { view, dateFilter, activeFilter, selectedLocations } = dashboardState;
+    const setView = (newView: 'grid' | 'calendar') => setDashboardState(prev => ({...prev, view: newView, dateFilter: null}));
+    const setActiveFilter = (newFilter: EventFilter) => setDashboardState(prev => ({...prev, activeFilter: newFilter, dateFilter: null}));
+    const handleLocationChange = (newLocations: string[]) => {
+        setDashboardState(prev => ({ ...prev, selectedLocations: newLocations }));
+    };
 
-    type PageState = 'LIST' | 'MENU_CREATOR' | 'LIVE_COUNTER_SELECTOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN';
+    type PageState = 'LIST' | 'MENU_CREATOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN';
     const [pageState, setPageState] = useState<PageState>('LIST');
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
 
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
     const [eventToCancel, setEventToCancel] = useState<Event | null>(null);
+    
     const [isLostModalOpen, setIsLostModalOpen] = useState(false);
-    const [lostReason, setLostReason] = useState('');
+    const [lostReasonId, setLostReasonId] = useState('');
+    const [competitionId, setCompetitionId] = useState('');
+    const [lostNotes, setLostNotes] = useState('');
     const [eventToMarkAsLost, setEventToMarkAsLost] = useState<Event | null>(null);
+    
+    const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+    const [eventToEdit, setEventToEdit] = useState<Event | null>(null);
 
     const eventsToDisplay = useMemo(() => {
         return eventsFilter ? eventsFilter(managedEvents) : managedEvents;
@@ -136,9 +150,21 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
     };
     
     const handleBackToCalendar = () => {
-        setDateFilter(null);
         setView('calendar');
     }
+    
+    const handleEditEvent = (event: Event) => {
+        setEventToEdit(event);
+        setIsEventModalOpen(true);
+    };
+
+    const handleSaveEvent = async (eventData: Omit<Event, 'id'> | Event) => {
+        if ('id' in eventData) {
+            await updateEvent(eventData);
+        }
+        setIsEventModalOpen(false);
+        setEventToEdit(null);
+    };
 
     const handleStateChange = async (eventToUpdate: Event, newState: EventState, reason?: string) => {
         if (!currentUser) {
@@ -154,11 +180,17 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
             reason: reason,
         };
         
-        const updatedEvent: Event = {
-            ...eventToUpdate,
-            state: newState,
-            stateHistory: [...(eventToUpdate.stateHistory || []), historyEntry],
+        const updatedEvent: Event = { 
+            ...eventToUpdate, 
+            state: newState, 
+            stateHistory: [...(eventToUpdate.stateHistory || []), historyEntry]
         };
+        
+        if (newState !== 'lost') {
+            delete updatedEvent.lostReasonId;
+            delete updatedEvent.lostToCompetitionId;
+            delete updatedEvent.lostNotes;
+        }
         
         if (newState === 'lost' || newState === 'cancelled') {
             updatedEvent.status = 'finalized'; // Lock the menu
@@ -174,6 +206,9 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
 
     const handleRequestLost = (event: Event) => {
         setEventToMarkAsLost(event);
+        setLostReasonId('');
+        setCompetitionId('');
+        setLostNotes('');
         setIsLostModalOpen(true);
     };
 
@@ -189,23 +224,57 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
     };
 
     const handleConfirmLost = async () => {
-        if (eventToMarkAsLost && lostReason.trim()) {
-            await handleStateChange(eventToMarkAsLost, 'lost', lostReason);
-            setIsLostModalOpen(false);
-            setLostReason('');
-            setEventToMarkAsLost(null);
-        } else {
+        if (!eventToMarkAsLost || !lostReasonId) {
             alert('A reason is required to mark the event as lost.');
+            return;
         }
+
+        const selectedReason = lostReasonSettings.find(r => r.id === lostReasonId);
+        if (!selectedReason) {
+            alert('Invalid reason selected.');
+            return;
+        }
+
+        let reasonForHistory = `Reason: ${selectedReason.name}.`;
+        let finalCompetitionId: string | undefined = undefined;
+
+        if (selectedReason.isCompetitionReason) {
+            if (!competitionId) {
+                alert('Please select a competitor.');
+                return;
+            }
+            const competitor = competitionSettings.find(c => c.id === competitionId);
+            if (competitor) {
+                reasonForHistory += ` Lost to: ${competitor.name}.`;
+                finalCompetitionId = competitor.id;
+            } else {
+                alert('Invalid competitor selected.');
+                return;
+            }
+        }
+        
+        if (lostNotes.trim()) {
+            reasonForHistory += ` Notes: ${lostNotes.trim()}`;
+        }
+        
+        const eventWithLostInfo: Event = {
+            ...eventToMarkAsLost,
+            lostReasonId,
+            lostToCompetitionId: finalCompetitionId,
+            lostNotes: lostNotes.trim() || undefined,
+        };
+        
+        await handleStateChange(eventWithLostInfo, 'lost', reasonForHistory);
+
+        setIsLostModalOpen(false);
+        setLostReasonId('');
+        setCompetitionId('');
+        setLostNotes('');
+        setEventToMarkAsLost(null);
     };
 
     const handleSaveMenu = (updatedEvent: Event) => {
         updateEvent(updatedEvent);
-        setPageState('LIST');
-        setSelectedEvent(null);
-    };
-    const handleSaveLiveCounters = (event: Event, updatedCounters: Record<string, string[]>) => {
-        updateEvent({ ...event, liveCounters: updatedCounters });
         setPageState('LIST');
         setSelectedEvent(null);
     };
@@ -277,9 +346,6 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
         }
         return <MenuCreator initialEvent={selectedEvent} client={client} onSave={handleSaveMenu} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} />;
     }
-    if (pageState === 'LIVE_COUNTER_SELECTOR' && selectedEvent) {
-        return <LiveCounterSelectorPage event={selectedEvent} onSave={handleSaveLiveCounters} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} canModify={canModify} />;
-    }
     if (pageState === 'FINANCE' && selectedEvent && permissions) {
         return <FinanceManager 
             event={selectedEvent} 
@@ -301,6 +367,17 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
     // Default to list view if not in an editor state
     return (
         <div>
+            {isEventModalOpen && eventToEdit && (
+                <Modal isOpen={true} onClose={() => setIsEventModalOpen(false)} title="Edit Event">
+                    <EventForm 
+                        onSave={handleSaveEvent} 
+                        onCancel={() => setIsEventModalOpen(false)} 
+                        event={eventToEdit} 
+                        clientId={eventToEdit.clientId} 
+                        isReadOnly={!canModify} 
+                    />
+                </Modal>
+            )}
              {isCancelModalOpen && (
                 <Modal isOpen={isCancelModalOpen} onClose={() => setIsCancelModalOpen(false)} title="Cancel Event">
                     <div>
@@ -322,19 +399,31 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
             )}
             {isLostModalOpen && (
                 <Modal isOpen={isLostModalOpen} onClose={() => setIsLostModalOpen(false)} title="Mark Event as Lost">
-                    <div>
-                        <p className="text-sm mb-4">Please provide a reason for marking the event as lost: "{eventToMarkAsLost?.eventType}".</p>
-                        <textarea
-                            value={lostReason}
-                            onChange={e => setLostReason(e.target.value)}
-                            required
-                            className={inputStyle}
-                            rows={3}
-                            placeholder="e.g., Lost to competitor, client budget issue, etc."
-                        />
+                     <div className="space-y-4">
+                        <p className="mb-2">Please provide details about why this lead was lost: "{eventToMarkAsLost?.eventType}".</p>
+                        <div>
+                            <label className="block text-sm font-medium">Reason</label>
+                            <select value={lostReasonId} onChange={e => setLostReasonId(e.target.value)} required className={inputStyle}>
+                                <option value="">-- Select Reason --</option>
+                                {lostReasonSettings.sort((a,b)=>a.name.localeCompare(b.name)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                            </select>
+                        </div>
+                        {lostReasonSettings.find(r => r.id === lostReasonId)?.isCompetitionReason && (
+                             <div>
+                                <label className="block text-sm font-medium">Competitor</label>
+                                <select value={competitionId} onChange={e => setCompetitionId(e.target.value)} required className={inputStyle}>
+                                    <option value="">-- Select Competitor --</option>
+                                    {competitionSettings.sort((a,b)=>a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                            </div>
+                        )}
+                        <div>
+                            <label className="block text-sm font-medium">Notes (Optional)</label>
+                            <textarea value={lostNotes} onChange={e => setLostNotes(e.target.value)} className={inputStyle} rows={3} placeholder="Add any additional details..."/>
+                        </div>
                         <div className="flex justify-end gap-3 pt-4">
                             <button type="button" onClick={() => setIsLostModalOpen(false)} className={secondaryButton}>Back</button>
-                            <button type="button" onClick={handleConfirmLost} className={dangerButton} disabled={!lostReason.trim()}>Confirm Lost</button>
+                            <button type="button" onClick={handleConfirmLost} className={dangerButton} disabled={!lostReasonId || (!!lostReasonSettings.find(r => r.id === lostReasonId)?.isCompetitionReason && !competitionId)}>Confirm Lost</button>
                         </div>
                     </div>
                 </Modal>
@@ -365,11 +454,19 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
                     ? (
                         <div>
                             <div className="flex justify-between items-center mb-4">
-                                <h4 className="text-xl font-bold">{displayTitle}</h4>
-                                {dateFilter 
-                                    ? <button onClick={handleBackToCalendar} className={secondaryButton}><ArrowLeft size={16}/> Back to Calendar</button>
-                                    : (activeFilter && <button onClick={() => setActiveFilter(null)} className={secondaryButton}><X size={16} className="text-accent-500"/> Clear Filter</button>)
-                                }
+                                <div className="flex items-center gap-4">
+                                    {dateFilter && (
+                                        <button onClick={handleBackToCalendar} className={iconButton('hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700')}>
+                                            <ArrowLeft size={20}/>
+                                        </button>
+                                    )}
+                                    <h4 className="text-xl font-bold">{displayTitle}</h4>
+                                </div>
+                                {activeFilter && !dateFilter && (
+                                    <button onClick={() => setActiveFilter(null)} className={secondaryButton}>
+                                        <X size={16} className="text-accent-500"/> Clear Filter
+                                    </button>
+                                )}
                             </div>
                             {groupedAndSortedEvents.length === 0 ? (
                                 <p className="text-center py-8 text-warm-gray-500">No events match the current filter.</p>
@@ -383,7 +480,7 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
                                                     <EventCard
                                                         key={event.id}
                                                         event={event}
-                                                        onEdit={() => onNavigate('clients', event.clientId, event.id, 'editEvent')}
+                                                        onEdit={() => handleEditEvent(event)}
                                                         onDelete={() => handleDeleteEvent(event)}
                                                         onDuplicate={() => handleDuplicateEvent(event)}
                                                         onNavigate={(state) => {
@@ -398,7 +495,7 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
                                                         canAccessFinances={canAccessFinances}
                                                         showClientName={true}
                                                         userRole={currentUser?.role}
-                                                        onClientClick={() => onNavigate('clients', event.clientId)}
+                                                        onClientClick={() => onNavigate(event.clientId)}
                                                         onStateChange={handleStateChange}
                                                         onRequestCancel={handleRequestCancel}
                                                         onRequestLost={handleRequestLost}
@@ -414,7 +511,9 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
                     : <CalendarView 
                         events={eventsToDisplay} 
                         clients={clients}
-                        onDateSelect={(date) => { setDateFilter(date); setView('grid'); }}
+                        onDateSelect={(date) => { setDashboardState(prev => ({ ...prev, view: 'grid', dateFilter: date, activeFilter: null })); }}
+                        selectedLocations={selectedLocations}
+                        onLocationChange={handleLocationChange}
                       />
                 }
             </div>
