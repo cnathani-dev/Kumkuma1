@@ -1,9 +1,7 @@
-
-
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Event, EventSession, EventState, MenuTemplate, LocationSetting, MenuSelectionStatus } from '../../types';
-import { useTemplates, useLocations, useEventTypes, useMuhurthamDates, useCatalogs, useAppCategories } from '../../contexts/AppContexts';
+import { useTemplates, useEventTypes, useMuhurthamDates, useCatalogs, useAppCategories, useRestaurants } from '../../contexts/AppContexts';
+import { useManagedLocations } from '../../contexts/AuthContext';
 import { inputStyle, primaryButton, secondaryButton } from '../common/styles';
 import { Save } from 'lucide-react';
 import { dateToYYYYMMDD } from '../../lib/utils';
@@ -16,11 +14,12 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
     isReadOnly: boolean;
 }) => {
     const { templates } = useTemplates();
-    const { locations } = useLocations();
+    const locations = useManagedLocations();
     const { settings: eventTypes } = useEventTypes();
     const { muhurthamDates } = useMuhurthamDates();
     const { catalogs } = useCatalogs();
     const { categories } = useAppCategories();
+    const { restaurants } = useRestaurants();
 
     const [eventType, setEventType] = useState(event?.eventType || '');
     const [startDate, setStartDate] = useState(event?.startDate || '');
@@ -33,6 +32,7 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
     const [rent, setRent] = useState(event?.rent || 0);
     const [pax, setPax] = useState(event?.pax || 0);
     const [notes, setNotes] = useState(event?.notes || '');
+    const [restaurantId, setRestaurantId] = useState(event?.restaurantId || '');
     
     const fifteenDaysAgo = new Date();
     fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
@@ -55,6 +55,12 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
 
     const sortedGroupNames = useMemo(() => Object.keys(groupedTemplates).sort(), [groupedTemplates]);
 
+    useEffect(() => {
+        if (location !== 'ODC') {
+            setRestaurantId('');
+        }
+    }, [location]);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if(isReadOnly) return;
@@ -75,8 +81,9 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
             endDate: endDate || undefined,
             location,
             address: location === 'ODC' ? address : '',
+            restaurantId: location === 'ODC' ? restaurantId : undefined,
             session,
-            templateId: templateId || undefined, // Set to undefined if empty string
+            templateId: templateId || null, // Set to null if empty string
             clientId,
             pricingModel,
             rent: (pricingModel === 'flat' || pricingModel === 'mix') ? rent : 0,
@@ -87,7 +94,37 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
 
         if(event) { // This is an update
             const dataToUpdate: Partial<Event> = { ...baseData, state: event.state };
-            onSave({ ...event, ...dataToUpdate });
+            
+            const finalEvent = { ...event, ...dataToUpdate };
+
+            // Check if the template has changed
+            if (templateId !== (event.templateId || '')) {
+                const newItemIds: Record<string, string[]> = {};
+                
+                // If a new template is selected (not "No Template" or "No Food"),
+                // pre-populate with standard accompaniments.
+                if (templateId && templateId !== 'NO_FOOD') {
+                    const selectedTemplate = templates.find(t => t.id === templateId);
+                    const selectedCatalog = selectedTemplate ? catalogs.find(c => c.id === selectedTemplate.catalogId) : null;
+    
+                    if (selectedCatalog) {
+                        const standardAccompanimentCategories = categories.filter(c => c.isStandardAccompaniment);
+                        const standardCategoryIds = new Set(standardAccompanimentCategories.map(c => c.id));
+                        
+                        for (const catId in selectedCatalog.itemIds) {
+                            if (standardCategoryIds.has(catId)) {
+                                newItemIds[catId] = [...(selectedCatalog.itemIds[catId] || [])];
+                            }
+                        }
+                    }
+                }
+                
+                finalEvent.itemIds = newItemIds;
+                finalEvent.cocktailMenuItems = {};
+                finalEvent.hiTeaMenuItems = {};
+            }
+            
+            onSave(finalEvent);
         } else { // This is a create
             const newEventData: Omit<Event, 'id'> = {
                 ...baseData,
@@ -174,9 +211,18 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
                 </div>
             </div>
             {location === 'ODC' && (
-                 <div>
-                    <label className="block text-sm font-medium">Address for ODC</label>
-                    <textarea value={address} onChange={e => setAddress(e.target.value)} rows={2} required className={inputStyle} readOnly={isReadOnly} />
+                 <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium">Assign Restaurant</label>
+                        <select value={restaurantId} onChange={e => setRestaurantId(e.target.value)} className={inputStyle} disabled={isReadOnly}>
+                            <option value="">-- No Restaurant --</option>
+                            {restaurants.sort((a,b) => a.name.localeCompare(b.name)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Address for ODC</label>
+                        <textarea value={address} onChange={e => setAddress(e.target.value)} rows={2} required className={inputStyle} readOnly={isReadOnly} />
+                    </div>
                 </div>
             )}
              <div>
@@ -186,7 +232,7 @@ export const EventForm = ({ onSave, onCancel, event, clientId, isReadOnly }: {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Menu Template</label>
-                    <select value={templateId} onChange={e => setTemplateId(e.target.value)} className={inputStyle} disabled={isReadOnly}>
+                    <select value={templateId || ''} onChange={e => setTemplateId(e.target.value)} className={inputStyle} disabled={isReadOnly}>
                         <option value="">-- No Template (Custom Menu) --</option>
                         <option value="NO_FOOD">-- No Food Event --</option>
                         {sortedGroupNames.map(groupName => (

@@ -40,6 +40,7 @@ import {
     CompetitionSettingsContextType,
     LostReasonSettingsContextType,
     ClientActivityTypeSettingsContextType,
+    GeneralSettingsContextType,
 } from '../types';
 
 // --- CONTEXTS ---
@@ -324,5 +325,12 @@ export const ClientActivityTypeSettingsContext = createContext<ClientActivityTyp
 export const useClientActivityTypeSettings = () => {
     const context = useContext(ClientActivityTypeSettingsContext);
     if (!context) throw new Error('useClientActivityTypeSettings must be used within a ClientActivityTypeSettingsProvider');
+    return context;
+};
+
+export const GeneralSettingsContext = createContext<GeneralSettingsContextType | undefined>(undefined);
+export const useGeneralSettings = () => {
+    const context = useContext(GeneralSettingsContext);
+    if (!context) throw new Error('useGeneralSettings must be used within a GeneralSettingsProvider');
     return context;
 };

@@ -111,6 +111,17 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
                 if (existingCharge.notes !== itemData.notes) changes.push({ field: 'notes', from: existingCharge.notes, to: itemData.notes });
                 if (existingCharge.type !== itemData.type) changes.push({ field: 'type', from: existingCharge.type, to: itemData.type });
                 if (changes.length > 0) historyEntry.changes = changes;
+
+                if (
+                    (itemData.type === 'Cocktail Menu' || itemData.type === 'Hi-Tea Menu') &&
+                    itemData.menuTemplateId !== existingCharge.menuTemplateId
+                ) {
+                    if (itemData.type === 'Cocktail Menu') {
+                        newEvent.cocktailMenuItems = {};
+                    } else { // Hi-Tea Menu
+                        newEvent.hiTeaMenuItems = {};
+                    }
+                }
                 
                 charges[index] = { ...existingCharge, ...itemData, history: [...(existingCharge.history || []), historyEntry] };
             } else { // Create

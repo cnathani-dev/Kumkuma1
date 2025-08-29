@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { Event, Item, LiveCounter, LiveCounterItem, AppCategory, Catalog, MenuTemplate, Transaction, Charge, ItemType, Client, PlanCategory, Recipe, RawMaterial, MuhurthamDate, Order, RestaurantSetting, Platter, PlatterRecipe, OrderTemplate } from '../types';
+import { Event, Item, LiveCounter, LiveCounterItem, AppCategory, Catalog, MenuTemplate, Transaction, Charge, ItemType, Client, PlanCategory, Recipe, RawMaterial, MuhurthamDate, Order, RestaurantSetting, Platter, PlatterRecipe, OrderTemplate, ItemAccompaniment } from '../types';
 import { kumkumaCaterersLogoBase64 } from './branding';
 import { formatYYYYMMDD, formatDateRange, dateToYYYYMMDD } from './utils';
 
@@ -189,7 +189,7 @@ const drawMenuSection = (
     title: string,
     groupedItems: ReturnType<typeof groupItemsByRootCategory>,
     startY: number,
-    { pageH, margin, initialYSubsequentPage, columnWidth, columnGap, itemLineHeight, categoryHeaderHeight, categoryBottomMargin }: any
+    { pageH, margin, initialYSubsequentPage, columnWidth, columnGap, itemLineHeight, categoryHeaderHeight, categoryBottomMargin, accompanimentMap }: any
 ): number => {
     let y = startY;
 
@@ -210,17 +210,32 @@ const drawMenuSection = (
     y += categoryHeaderHeight;
     
     // Item drawing helpers
-    const calculateItemHeight = (itemText: string): number => {
+    const calculateItemHeight = (item: Item): number => {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
-        const lines = doc.splitTextToSize(itemText, columnWidth - 5);
-        return (lines.length * itemLineHeight) + 2;
+        const lines = doc.splitTextToSize(item.name, columnWidth - 5);
+        let height = (lines.length * itemLineHeight) + 2;
+
+        if (item.accompanimentIds && item.accompanimentIds.length > 0) {
+            const accompanimentNames = item.accompanimentIds
+                .map(id => accompanimentMap.get(id))
+                .filter(Boolean) as string[];
+
+            if (accompanimentNames.length > 0) {
+                const accompanimentText = `w/ ${accompanimentNames.join(', ')}`;
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(8);
+                const accLines = doc.splitTextToSize(accompanimentText, columnWidth - 10);
+                height += (accLines.length * (itemLineHeight - 1)) + 1;
+            }
+        }
+        return height;
     };
 
-    const drawFinalMenuItem = (itemText: string, x: number, currentY: number) => {
+    const drawFinalMenuItem = (item: Item, x: number, currentY: number) => {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
-        const lines = doc.splitTextToSize(itemText, columnWidth - 5);
+        const lines = doc.splitTextToSize(item.name, columnWidth - 5);
         
         doc.setTextColor(primaryColor);
         doc.setFont('helvetica', 'bold');
@@ -229,6 +244,22 @@ const drawMenuSection = (
         doc.setTextColor(textColor);
         doc.setFont('helvetica', 'normal');
         doc.text(lines, x + 5, currentY);
+
+        let yOffset = lines.length * itemLineHeight;
+
+        if (item.accompanimentIds && item.accompanimentIds.length > 0) {
+            const accompanimentNames = item.accompanimentIds
+                .map(id => accompanimentMap.get(id))
+                .filter(Boolean) as string[];
+
+            if (accompanimentNames.length > 0) {
+                const accompanimentText = `w/ ${accompanimentNames.join(', ')}`;
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(8);
+                doc.setTextColor(lightTextColor);
+                doc.text(accompanimentText, x + 8, currentY + yOffset, { maxWidth: columnWidth - 10 });
+            }
+        }
     };
 
     for (const { rootCat, items } of groupedItems) {
@@ -247,7 +278,7 @@ const drawMenuSection = (
         let yRight = y;
 
         for (const item of items) {
-            const itemHeight = calculateItemHeight(item.name);
+            const itemHeight = calculateItemHeight(item);
             
             if (yLeft + itemHeight > pageH - margin && yRight + itemHeight > pageH - margin) {
                 doc.addPage();
@@ -257,10 +288,10 @@ const drawMenuSection = (
             }
 
             if (yLeft <= yRight) {
-                drawFinalMenuItem(item.name, margin, yLeft);
+                drawFinalMenuItem(item, margin, yLeft);
                 yLeft += itemHeight;
             } else {
-                drawFinalMenuItem(item.name, margin + columnWidth + columnGap, yRight);
+                drawFinalMenuItem(item, margin + columnWidth + columnGap, yRight);
                 yRight += itemHeight;
             }
         }
@@ -276,7 +307,8 @@ export const exportToPdf = (
   allItems: Item[],
   allCategories: AppCategory[],
   liveCounters: LiveCounter[], 
-  liveCounterItems: LiveCounterItem[]
+  liveCounterItems: LiveCounterItem[],
+  allAccompaniments: ItemAccompaniment[]
 ) => {
     try {
         const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
@@ -291,19 +323,21 @@ export const exportToPdf = (
         const initialYSubsequentPage = 25;
         let y = initialYFirstPage;
 
-        const drawingConstants = {
-            pageH, margin, initialYSubsequentPage, columnWidth, columnGap,
-            itemLineHeight: 4.5,
-            categoryHeaderHeight: 10,
-            categoryBottomMargin: 10,
-        };
-
         // --- Data Prep ---
         const itemMap = new Map(allItems.map(i => [i.id, i]));
         const categoryMap = new Map(allCategories.map(c => [c.id, c]));
         const liveCounterMap = new Map(liveCounters.map(lc => [lc.id, lc]));
         const liveCounterItemMap = new Map(liveCounterItems.map(lci => [lci.id, lci]));
+        const accompanimentMap = new Map(allAccompaniments.map(acc => [acc.id, acc.name]));
         
+        const drawingConstants = {
+            pageH, margin, initialYSubsequentPage, columnWidth, columnGap,
+            itemLineHeight: 4.5,
+            categoryHeaderHeight: 10,
+            categoryBottomMargin: 10,
+            accompanimentMap
+        };
+
         if (event.notes) {
             const notesHeaderHeight = 10;
             const splitNotes = doc.splitTextToSize(event.notes, contentWidth - 4);
@@ -1481,12 +1515,12 @@ export const exportToExcel = (event: Event, client: Client, allItems: Item[], al
         XLSX.utils.book_append_sheet(wb, wsDetails, 'Event Details');
 
         const itemMap = new Map(allItems.map(i => [i.id, i]));
-        const categoryMap = new Map(allCategories.map(c => [c.id, c]));
+        const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
         
         const menuData = Object.entries(event.itemIds || {})
             .flatMap(([catId, itemIds]) => 
                 itemIds.map(itemId => ({
-                    Category: categoryMap.get(catId)?.name || 'Unknown',
+                    Category: categoryMap.get(catId) || 'Unknown',
                     Item: itemMap.get(itemId)?.name || 'Unknown',
                 }))
             );

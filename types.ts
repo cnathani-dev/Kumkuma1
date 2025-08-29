@@ -143,10 +143,11 @@ export interface Event {
   startDate: string; // YYYY-MM-DD
   endDate?: string; // YYYY-MM-DD
   location: string;
+  restaurantId?: string;
   address?: string;
   session: EventSession;
   pax: number;
-  templateId?: string;
+  templateId?: string | null;
   itemIds: Record<string, string[]>;
   liveCounters?: Record<string, string[]>;
   cocktailMenuItems?: Record<string, string[]>;
@@ -381,6 +382,11 @@ export interface ClientActivityTypeSetting {
   icon?: string;
 }
 
+export interface GeneralSettings {
+    id: string;
+    kitchenDashboardEventHorizon: number;
+}
+
 // --- Context Types ---
 
 export interface ItemsContextType {
@@ -533,4 +539,10 @@ export interface ClientActivityTypeSettingsContextType {
   addSetting: (setting: Omit<ClientActivityTypeSetting, 'id'>) => Promise<void>;
   updateSetting: (setting: ClientActivityTypeSetting) => Promise<void>;
   deleteSetting: (id: string) => Promise<void>;
+  mergeSettings?: (sourceIds: string[], destId: string) => Promise<void>;
+}
+
+export interface GeneralSettingsContextType {
+    settings: GeneralSettings | null;
+    updateSettings: (settings: Partial<Omit<GeneralSettings, 'id'>>) => Promise<void>;
 }

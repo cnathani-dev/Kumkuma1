@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Event, Item, MenuTemplate, AppCategory, ItemType, LiveCounterItem, LiveCounter, Catalog, Client } from '../../types';
-import { useItems, useTemplates, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs } from '../../contexts/AppContexts';
+import { Event, Item, MenuTemplate, AppCategory, ItemType, LiveCounterItem, LiveCounter, Catalog, Client, ItemAccompaniment } from '../../types';
+import { useItems, useTemplates, useAppCategories, useLiveCounters, useLiveCounterItems, useCatalogs, useItemAccompaniments } from '../../contexts/AppContexts';
+import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../../components/Modal';
-import { Save, X, Eye, Download, FileSpreadsheet, ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
+import { Save, X, Eye, Download, FileSpreadsheet, ArrowLeft, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { exportToPdf, exportToExcel } from '../../lib/export';
 import { deepClone } from '../../lib/utils';
 import { primaryButton, secondaryButton } from '../../components/common/styles';
@@ -158,16 +159,7 @@ const useMenuData = (templateId: string | undefined, selectedItems: Record<strin
     const { categories: allCategories } = useAppCategories();
 
     return useMemo(() => {
-        if (!templateId) return { template: null, catalog: null, hierarchicalData: [] };
-        const temp = templates.find(t => t.id === templateId);
-        if (!temp) return { template: temp, catalog: null, hierarchicalData: [] };
-        const cat = catalogs.find(c => c.id === temp.catalogId);
-        if (!cat) return { template: temp, catalog: cat, hierarchicalData: [] };
-
-        const allItemsInCat = new Set(Object.values(cat.itemIds).flat());
-        const itemsMap = new Map(allItems.filter(i => allItemsInCat.has(i.id)).map(i => [i.id, i]));
         const catMap = new Map(allCategories.map(c => [c.id, c]));
-
         const getDescendantCats = (rootId: string): string[] => {
             const children: string[] = [];
             const queue = [rootId];
@@ -183,6 +175,51 @@ const useMenuData = (templateId: string | undefined, selectedItems: Record<strin
             return [rootId, ...children];
         };
 
+        if (!templateId) {
+            const itemsMap = new Map(allItems.map(i => [i.id, i]));
+            const rootCats = allCategories.filter(c => !c.parentId);
+
+            const data: HierarchicalItemData[] = rootCats.map(rootCat => {
+                const descendantCatIds = getDescendantCats(rootCat.id);
+                const currentCount = descendantCatIds.reduce((sum, catId) => sum + (selectedItems[catId]?.length || 0), 0);
+                
+                const parentItems = Array.from(itemsMap.values()).filter(item => item.categoryId === rootCat.id).sort((a,b)=>(a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+
+                const itemsByChild: Record<string, Item[]> = {};
+                descendantCatIds.forEach(catId => {
+                    if (catId === rootCat.id) return;
+                    const childCat = catMap.get(catId);
+                    if (childCat && childCat.parentId === rootCat.id) {
+                         const itemsForThisCat = Array.from(itemsMap.values()).filter(item => item.categoryId === catId);
+                         if(itemsForThisCat.length > 0){
+                           itemsByChild[childCat.id] = itemsForThisCat.sort((a,b)=>(a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
+                         }
+                    }
+                });
+
+                return { 
+                    rootCat, 
+                    maxItems: Infinity, // No limit
+                    currentCount, 
+                    parentItems, 
+                    itemsByChild, 
+                    childCatIds: descendantCatIds 
+                };
+            }).filter(d => d.parentItems.length > 0 || Object.keys(d.itemsByChild).length > 0);
+
+            const sortedData = data.sort((a, b) => (a.rootCat.displayRank ?? Infinity) - (b.rootCat.displayRank ?? Infinity) || a.rootCat.name.localeCompare(b.rootCat.name));
+
+            return { template: null, catalog: null, hierarchicalData: sortedData };
+        }
+        
+        const temp = templates.find(t => t.id === templateId);
+        if (!temp) return { template: temp, catalog: null, hierarchicalData: [] };
+        const cat = catalogs.find(c => c.id === temp.catalogId);
+        if (!cat) return { template: temp, catalog: cat, hierarchicalData: [] };
+
+        const allItemsInCat = new Set(Object.values(cat.itemIds).flat());
+        const itemsMap = new Map(allItems.filter(i => allItemsInCat.has(i.id)).map(i => [i.id, i]));
+
         const data: HierarchicalItemData[] = Object.entries(temp.rules || {})
             .map(([rootCatId, maxItems]) => {
                 const rootCat = catMap.get(rootCatId);
@@ -194,7 +231,7 @@ const useMenuData = (templateId: string | undefined, selectedItems: Record<strin
                 descendantCatIds.forEach(catId => {
                     if (catId === rootCatId) return;
                     const childCat = catMap.get(catId);
-                    if (childCat && childCat.parentId === rootCatId) {
+                    if (childCat && childCat.parentId === rootCat.id) {
                          const itemsForThisCat = Array.from(itemsMap.values()).filter(item => item.categoryId === catId);
                          if(itemsForThisCat.length > 0){
                            itemsByChild[childCat.id] = itemsForThisCat.sort((a,b)=>(a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name));
@@ -262,7 +299,7 @@ const TemplateItemsSelector = ({ templateId, selectedItems, onItemsUpdate, isRea
             newSelectedItems[item.categoryId] = categoryItems.filter(id => id !== item.id);
             if (newSelectedItems[item.categoryId].length === 0) delete newSelectedItems[item.categoryId];
         } else {
-            if (rootCatInfo.currentCount >= rootCatInfo.maxItems && !rootCatInfo.rootCat.isStandardAccompaniment) {
+            if (rootCatInfo.maxItems !== Infinity && rootCatInfo.currentCount >= rootCatInfo.maxItems && !rootCatInfo.rootCat.isStandardAccompaniment) {
                 alert(`You can only select up to ${rootCatInfo.maxItems} items from ${rootCatInfo.rootCat.name}.`);
                 return;
             }
@@ -286,8 +323,8 @@ const TemplateItemsSelector = ({ templateId, selectedItems, onItemsUpdate, isRea
                                 className={`w-full p-2 text-left rounded-md font-semibold transition-colors text-sm flex justify-between items-center ${activeCategoryId === data.rootCat.id ? 'bg-primary-100 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300' : 'hover:bg-warm-gray-100 dark:hover:bg-warm-gray-700'}`}
                             >
                                 <span>{data.rootCat.name}</span>
-                                <span className={`px-2 py-0.5 rounded-full text-xs ${data.currentCount > data.maxItems ? 'bg-red-200 text-red-800' : 'bg-gray-200 dark:bg-gray-700'}`}>
-                                    {data.currentCount}/{data.maxItems}
+                                <span className={`px-2 py-0.5 rounded-full text-xs ${data.maxItems !== Infinity && data.currentCount > data.maxItems ? 'bg-red-200 text-red-800' : 'bg-gray-200 dark:bg-gray-700'}`}>
+                                    {data.currentCount}{data.maxItems !== Infinity && `/${data.maxItems}`}
                                 </span>
                             </button>
                         </li>
@@ -305,7 +342,7 @@ const TemplateItemsSelector = ({ templateId, selectedItems, onItemsUpdate, isRea
                         <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                             {items.map(item => {
                                 const isSelected = (selectedItems[item.categoryId] || []).includes(item.id);
-                                const isMaxReached = !rootCatInfo.rootCat.isStandardAccompaniment && rootCatInfo.currentCount >= rootCatInfo.maxItems;
+                                const isMaxReached = rootCatInfo.maxItems !== Infinity && !rootCatInfo.rootCat.isStandardAccompaniment && rootCatInfo.currentCount >= rootCatInfo.maxItems;
                                 const isDisabled = isReadOnly || (isMaxReached && !isSelected) || (muttonLimitReached && item.type === 'mutton' && !isSelected);
 
                                 return (
@@ -325,7 +362,11 @@ const TemplateItemsSelector = ({ templateId, selectedItems, onItemsUpdate, isRea
 
                     return (
                         <div className="space-y-4">
-                            <div className="flex justify-between items-baseline"><h3 className="text-xl font-bold">{activeHierarchicalData.rootCat.name}</h3><span className={`px-2 py-0.5 rounded-full text-sm font-semibold ${activeHierarchicalData.currentCount > activeHierarchicalData.maxItems ? 'bg-red-200 text-red-800' : 'bg-gray-200 dark:bg-gray-700'}`}>{activeHierarchicalData.currentCount}/{activeHierarchicalData.maxItems}</span></div>
+                            <div className="flex justify-between items-baseline"><h3 className="text-xl font-bold">{activeHierarchicalData.rootCat.name}</h3>
+                            <span className={`px-2 py-0.5 rounded-full text-sm font-semibold ${activeHierarchicalData.maxItems !== Infinity && activeHierarchicalData.currentCount > activeHierarchicalData.maxItems ? 'bg-red-200 text-red-800' : 'bg-gray-200 dark:bg-gray-700'}`}>
+                                {activeHierarchicalData.currentCount}{activeHierarchicalData.maxItems !== Infinity && `/${activeHierarchicalData.maxItems}`}
+                            </span>
+                            </div>
                             {activeHierarchicalData.parentItems.length > 0 && renderItemList(activeHierarchicalData.parentItems, activeHierarchicalData)}
                             {sortedChildCatGroups.map(childCat => {
                                 const items = activeHierarchicalData.itemsByChild[childCat.id];
@@ -366,7 +407,9 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
     const { categories: allCategories } = useAppCategories();
     const { liveCounters: allLiveCounters } = useLiveCounters();
     const { liveCounterItems } = useLiveCounterItems();
+    const { settings: allAccompaniments } = useItemAccompaniments();
     const { templates } = useTemplates();
+    const { currentUser } = useAuth();
 
     const [event, setEvent] = useState<Event>(() => deepClone(initialEvent));
     const isReadOnly = useMemo(() => event.status === 'finalized' || event.state === 'lost' || event.state === 'cancelled', [event.status, event.state]);
@@ -478,14 +521,30 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
 
             <div className="flex-grow flex gap-6 min-h-0">
                 {activeTab === 'main' && (
-                    <TemplateItemsSelector
-                        templateId={event.templateId}
-                        selectedItems={event.itemIds}
-                        onItemsUpdate={(newItems) => setEvent(e => ({ ...e, itemIds: newItems }))}
-                        isReadOnly={isReadOnly}
-                        muttonLimitReached={muttonLimitReached(mainTemplate, event.itemIds)}
-                        templateName="Main Menu"
-                    />
+                    <>
+                        {!event.templateId && currentUser?.role !== 'admin' ? (
+                            <div className="flex-grow bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md flex items-center justify-center text-center">
+                                <div>
+                                    <AlertTriangle size={48} className="mx-auto text-amber-500" />
+                                    <h3 className="mt-4 text-xl font-bold">Admin-Only Menu</h3>
+                                    <p className="mt-2 text-warm-gray-500">
+                                        This event is configured for a custom menu, which can only be edited by an administrator.
+                                        <br />
+                                        Please select a predefined template to build a menu.
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <TemplateItemsSelector
+                                templateId={event.templateId}
+                                selectedItems={event.itemIds}
+                                onItemsUpdate={(newItems) => setEvent(e => ({ ...e, itemIds: newItems }))}
+                                isReadOnly={isReadOnly}
+                                muttonLimitReached={muttonLimitReached(mainTemplate, event.itemIds)}
+                                templateName="Main Menu"
+                            />
+                        )}
+                    </>
                 )}
                 {activeTab === 'cocktail' && cocktailCharge?.menuTemplateId && (
                     <TemplateItemsSelector
@@ -558,7 +617,7 @@ export default function MenuCreator({ initialEvent, client, onSave, onCancel }: 
                     <MenuSummary event={event} allItems={allItems} allCategories={allCategories} liveCounterMap={new Map(allLiveCounters.map(lc => [lc.id, lc]))} liveCounterItemMap={new Map(liveCounterItems.map(lci => [lci.id, lci]))} onRemoveItem={handleGenericRemoveItem} isReadOnly={isReadOnly}/>
                 </div>
                  <div className="mt-4 pt-4 border-t flex justify-end gap-2">
-                    <button onClick={() => exportToPdf(event, client, allItems, allCategories, allLiveCounters, liveCounterItems)} className={secondaryButton}><Download size={16}/> Download PDF</button>
+                    <button onClick={() => exportToPdf(event, client, allItems, allCategories, allLiveCounters, liveCounterItems, allAccompaniments)} className={secondaryButton}><Download size={16}/> Download PDF</button>
                     <button onClick={() => exportToExcel(event, client, allItems, allCategories, allLiveCounters, liveCounterItems)} className={secondaryButton}><FileSpreadsheet size={16} className="text-green-600"/> Excel</button>
                 </div>
             </Modal>

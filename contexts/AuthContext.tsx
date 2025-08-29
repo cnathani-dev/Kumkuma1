@@ -1,10 +1,11 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect, useMemo } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { User, Role, AppPermissions } from '../types';
+import { User, Role, AppPermissions, LocationSetting } from '../types';
 import { db } from '../firebase';
 import { collection, getDocs, query, where, setDoc, doc, writeBatch, onSnapshot, getDoc, updateDoc } from 'firebase/firestore';
 import { v4 as uuidv4 } from 'uuid';
 import { logAuditEvent } from '../lib/audit';
+import { useLocations } from './AppContexts';
 
 interface AuthContextType {
     currentUser: User | null;
@@ -60,6 +61,21 @@ export const useUserPermissions = () => {
             return allPermissions;
         }
 
+        if (currentUser.role === 'kitchen') {
+            // Kitchen users only need dashboard access in the main admin view.
+            // Their access to other kitchen-specific pages is controlled by their role directly.
+            const KITCHEN_PERMISSIONS: AppPermissions = {
+                dashboard: 'view',
+                itemBank: 'none', catalogs: 'none', templates: 'none',
+                liveCounters: 'none', reports: 'none', users: 'none',
+                settings: 'none', clientsAndEvents: 'none',
+                financeCore: 'none', financeCharges: 'none', financePayments: 'none', financeExpenses: 'none',
+                competition: 'none', lostReasons: 'none', muhurthams: 'none',
+                clientActivityTypes: 'none', allowEventCancellation: false,
+            };
+            return KITCHEN_PERMISSIONS;
+        }
+
         if (currentUser.role === 'staff') {
             if (!rolesLoaded) {
                 return null; // Indicate that permissions are still loading
@@ -90,9 +106,23 @@ export const useUserPermissions = () => {
             return NO_ACCESS_PERMISSIONS;
         }
 
-        // Regular and kitchen users have no admin panel permissions, so return null.
+        // Regular users have no admin panel permissions, so return null.
         return null;
     }, [currentUser, roles, rolesLoaded]);
+};
+
+export const useManagedLocations = (): LocationSetting[] => {
+    const { currentUser } = useAuth();
+    const { locations } = useLocations();
+
+    return useMemo(() => {
+        if (!currentUser || currentUser.role === 'admin' || !currentUser.managedLocationIds || currentUser.managedLocationIds.length === 0) {
+            return locations; // Admins and users without restrictions see all locations
+        }
+        
+        const managedIds = new Set(currentUser.managedLocationIds);
+        return locations.filter(loc => managedIds.has(loc.id));
+    }, [currentUser, locations]);
 };
 
 

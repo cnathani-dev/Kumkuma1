@@ -101,7 +101,7 @@ export const ReportsManager: React.FC<ReportsManagerProps> = ({ managedEvents, p
 
         if (activeReport === 'income') {
             let allIncome: any[] = [];
-            managedEvents.forEach(event => {
+            managedEvents.filter(event => event.state === 'confirmed').forEach(event => {
                 const eventIncomes = (event.transactions || []).filter(t => t.type === 'income' && !t.isDeleted);
                 eventIncomes.forEach(income => {
                     allIncome.push({
@@ -127,7 +127,7 @@ export const ReportsManager: React.FC<ReportsManagerProps> = ({ managedEvents, p
         }
         else if (activeReport === 'expense') {
             let allExpenses: any[] = [];
-            managedEvents.forEach(event => {
+            managedEvents.filter(event => event.state === 'confirmed').forEach(event => {
                 const eventExpenses = (event.transactions || []).filter(t => t.type === 'expense' && !t.isDeleted);
                 eventExpenses.forEach(expense => {
                     allExpenses.push({
@@ -230,6 +230,7 @@ export const ReportsManager: React.FC<ReportsManagerProps> = ({ managedEvents, p
                 const cutoffDate = yyyyMMDDToDate(cutoffDateStr);
 
                 const concludedEvents = filteredEventsForReports.filter(event => {
+                    if (event.state !== 'confirmed') return false;
                     const eventEnd = yyyyMMDDToDate(event.endDate || event.startDate);
                     return eventEnd <= cutoffDate;
                 });
@@ -262,7 +263,9 @@ export const ReportsManager: React.FC<ReportsManagerProps> = ({ managedEvents, p
                 });
                 data.sort((a, b) => b.profit - a.profit);
             } else if (activeReport === 'additionalPax') {
-                data = filteredEventsForReports.flatMap(event => {
+                data = filteredEventsForReports
+                    .filter(event => event.state === 'confirmed')
+                    .flatMap(event => {
                     const additionalPaxCharges = (event.charges || []).filter(c => c.type === 'Additional PAX' && !c.isDeleted);
                     return additionalPaxCharges.map(charge => ({
                         client: clientMap.get(event.clientId) || 'N/A',
@@ -289,6 +292,7 @@ export const ReportsManager: React.FC<ReportsManagerProps> = ({ managedEvents, p
                 : managedEvents;
 
             const eventsInRange = locationFilteredEvents.filter(e => {
+                if (e.state !== 'confirmed') return false;
                 const eventStart = yyyyMMDDToDate(e.startDate);
                 return eventStart >= threeMonthsAgo && eventStart <= threeMonthsHence;
             });

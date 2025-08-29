@@ -1,12 +1,60 @@
-import React, { useState, useMemo } from 'react';
-import { useLocations, useChargeTypes, useExpenseTypes, usePaymentModes, useReferralSources, useServiceArticles, useUnits, useItemAccompaniments, useEventTypes, useRestaurants, useOrderTemplates, useCompetitionSettings, useLostReasonSettings, useClientActivityTypeSettings } from '../../contexts/AppContexts';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useLocations, useChargeTypes, useExpenseTypes, usePaymentModes, useReferralSources, useServiceArticles, useUnits, useItemAccompaniments, useEventTypes, useRestaurants, useOrderTemplates, useCompetitionSettings, useLostReasonSettings, useClientActivityTypeSettings, useGeneralSettings } from '../../contexts/AppContexts';
 import { LocationSetting, FinancialSetting, EventTypeSetting, RestaurantSetting, OrderTemplate, LostReasonSetting, ClientActivityTypeSetting } from '../../types';
 import Modal from '../../components/Modal';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
 import { Plus, Edit, Trash2, Save, Merge, HelpCircle, Phone, Users, MapPin, ClipboardCheck, Mail, StickyNote, Calendar, MessageSquare } from 'lucide-react';
 import * as icons from 'lucide-react';
 
-type SettingType = 'locations' | 'eventTypes' | 'chargeTypes' | 'expenseTypes' | 'paymentModes' | 'referralSources' | 'serviceArticles' | 'units' | 'restaurants' | 'competition' | 'lostReasons' | 'clientActivityTypes';
+type SettingType = 'general' | 'locations' | 'eventTypes' | 'chargeTypes' | 'expenseTypes' | 'paymentModes' | 'referralSources' | 'serviceArticles' | 'units' | 'restaurants' | 'competition' | 'lostReasons' | 'clientActivityTypes';
+
+const GeneralSettingsPanel = ({ canModify }: { canModify: boolean }) => {
+    const { settings, updateSettings } = useGeneralSettings();
+    const [horizon, setHorizon] = useState<string>('');
+
+    useEffect(() => {
+        if (settings) {
+            setHorizon(String(settings.kitchenDashboardEventHorizon ?? 7));
+        }
+    }, [settings]);
+
+    const handleSave = () => {
+        const numValue = parseInt(horizon, 10);
+        if (!isNaN(numValue) && numValue > 0) {
+            updateSettings({ kitchenDashboardEventHorizon: numValue });
+            alert('Settings saved!');
+        } else {
+            alert('Please enter a valid positive number.');
+        }
+    };
+
+    return (
+        <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md max-w-2xl">
+            <h3 className="text-xl font-bold mb-4">General Application Settings</h3>
+            <div className="space-y-4">
+                <div>
+                    <label htmlFor="eventHorizon" className="block text-sm font-medium">Kitchen Dashboard Event Horizon</label>
+                    <p className="text-xs text-warm-gray-500 mb-1">Number of days into the future (including today) kitchen users can see confirmed events.</p>
+                    <input
+                        id="eventHorizon"
+                        type="number"
+                        value={horizon}
+                        onChange={(e) => setHorizon(e.target.value)}
+                        disabled={!canModify}
+                        min="1"
+                        className={inputStyle + " w-48"}
+                    />
+                </div>
+                {canModify && (
+                    <div className="flex justify-end">
+                        <button onClick={handleSave} className={primaryButton}>Save Settings</button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 
 const LucideIcon = ({ name, ...props }: { name: string;[key: string]: any }) => {
     const IconComponent = (icons as any)[name];
@@ -61,9 +109,13 @@ const ClientActivityTypeForm = ({ onSave, onCancel, setting }: {
 
 
 const ClientActivityTypeSettings = ({ canModify }: { canModify: boolean }) => {
-    const { settings, addSetting, updateSetting, deleteSetting } = useClientActivityTypeSettings();
+    const { settings, addSetting, updateSetting, deleteSetting, mergeSettings } = useClientActivityTypeSettings();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSetting, setEditingSetting] = useState<ClientActivityTypeSetting | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [mergeTarget, setMergeTarget] = useState<string>('');
+    const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+
 
     const handleSave = async (data: { id?: string, name: string, icon: string }) => {
         if (!canModify) return;
@@ -81,18 +133,69 @@ const ClientActivityTypeSettings = ({ canModify }: { canModify: boolean }) => {
         }
     };
 
+    const handleSelectionChange = (id: string, checked: boolean) => {
+        setSelectedIds(prev => {
+            const newSet = new Set(prev);
+            if(checked) newSet.add(id);
+            else newSet.delete(id);
+            return newSet;
+        });
+    }
+
+    const handleOpenMergeModal = () => {
+        setMergeTarget('');
+        setIsMergeModalOpen(true);
+    }
+
+    const handleConfirmMerge = async () => {
+        if (!mergeTarget || !mergeSettings) return;
+        const sourceIds = Array.from(selectedIds).filter(id => id !== mergeTarget);
+        if (sourceIds.length === 0) {
+            alert("Cannot merge an item into itself. Please select a different destination.");
+            return;
+        }
+        if (window.confirm(`Are you sure? This will update all activities using the merged types and cannot be undone.`)) {
+            try {
+                await mergeSettings(sourceIds, mergeTarget);
+                setSelectedIds(new Set());
+                setIsMergeModalOpen(false);
+            } catch(e) {
+                alert(`Error merging: ${e}`);
+            }
+        }
+    };
+
     return (
         <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
             {isModalOpen && <Modal isOpen={true} onClose={() => setIsModalOpen(false)} title={editingSetting ? `Edit Activity Type` : `Add Activity Type`}>
                 <ClientActivityTypeForm onSave={handleSave} onCancel={() => setIsModalOpen(false)} setting={editingSetting} />
             </Modal>}
+             {isMergeModalOpen && <Modal isOpen={true} onClose={() => setIsMergeModalOpen(false)} title={`Merge Activity Types`}>
+                <div className="space-y-4">
+                    <p>You have selected <strong>{selectedIds.size}</strong> types to merge. Select which one to keep as the primary. All others will be deleted, and their references updated.</p>
+                    <select value={mergeTarget} onChange={e => setMergeTarget(e.target.value)} className={inputStyle}>
+                        <option value="">-- Select Destination --</option>
+                        {settings.filter((s: ClientActivityTypeSetting) => selectedIds.has(s.id)).map((s:ClientActivityTypeSetting) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                    </select>
+                     <div className="flex justify-end gap-3 pt-4">
+                        <button type="button" onClick={() => setIsMergeModalOpen(false)} className={secondaryButton}>Cancel</button>
+                        <button type="button" onClick={handleConfirmMerge} disabled={!mergeTarget} className={primaryButton}>Confirm Merge</button>
+                    </div>
+                </div>
+            </Modal>}
             <div className="flex justify-end items-center gap-4 mb-4">
+                 {canModify && mergeSettings && selectedIds.size > 1 && (
+                    <button onClick={handleOpenMergeModal} className={primaryButton}><Merge size={16}/> Merge ({selectedIds.size})</button>
+                )}
                 {canModify && <button onClick={() => { setEditingSetting(null); setIsModalOpen(true); }} className={primaryButton}><Plus size={16} /> Add Activity Type</button>}
             </div>
             <ul className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
                 {settings.sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
                     <li key={s.id} className="py-2 flex justify-between items-center">
                         <div className="flex items-center gap-3">
+                             {canModify && mergeSettings && <input type="checkbox" checked={selectedIds.has(s.id)} onChange={e => handleSelectionChange(s.id, e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />}
                             <span className="p-2 bg-primary-100 rounded-full dark:bg-primary-900/50">
                                 <LucideIcon name={s.icon || 'HelpCircle'} className="text-primary-600 dark:text-primary-300" size={20} />
                             </span>
@@ -115,9 +218,10 @@ const ClientActivityTypeSettings = ({ canModify }: { canModify: boolean }) => {
 
 
 export const SettingsManager = ({ canModify }: { canModify: boolean }) => {
-    const [activeTab, setActiveTab] = useState<SettingType>('locations');
+    const [activeTab, setActiveTab] = useState<SettingType>('general');
 
     const tabs: { id: SettingType, name: string }[] = [
+        { id: 'general', name: 'General' },
         { id: 'locations', name: 'Locations' },
         { id: 'restaurants', name: 'Restaurants' },
         { id: 'eventTypes', name: 'Event Types' },
@@ -134,6 +238,8 @@ export const SettingsManager = ({ canModify }: { canModify: boolean }) => {
     
     const renderContent = () => {
         switch (activeTab) {
+            case 'general':
+                return <GeneralSettingsPanel canModify={canModify} />;
             case 'locations':
                 return <LocationSettings canModify={canModify} />;
             case 'restaurants':

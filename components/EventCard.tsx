@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useTemplates, useEvents, useClients } from '../contexts/AppContexts';
+import { useTemplates, useEvents, useClients, useRestaurants } from '../contexts/AppContexts';
 import { useAuth, useUserPermissions } from '../contexts/AuthContext';
 import { Event, EventState, UserRole } from '../types';
 import { FileEdit, Salad, Banknote, Lock, Unlock, Edit, Trash2, BadgeHelp, BadgeCheck, BadgeX, Calendar, Clock, MapPin, Users, ConciergeBell, ChefHat, Copy, BadgeAlert, CheckCircle, XCircle, Ban, FileWarning } from 'lucide-react';
@@ -29,6 +29,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, o
     const { updateEvent } = useEvents();
     const { templates } = useTemplates();
     const { clients } = useClients();
+    const { restaurants } = useRestaurants();
     const { currentUser } = useAuth();
     const permissions = useUserPermissions();
 
@@ -46,9 +47,16 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, o
         return event.history?.find(h => h.action === 'created')?.username;
     }, [event.history]);
 
+    const restaurantName = useMemo(() => {
+        if (event.location === 'ODC' && event.restaurantId) {
+            return restaurants.find(r => r.id === event.restaurantId)?.name;
+        }
+        return null;
+    }, [restaurants, event.location, event.restaurantId]);
+
     const menuFinalized = event.status === 'finalized';
     const isReadOnly = event.state === 'lost' || event.state === 'cancelled';
-    const showMenuButtons = event.templateId && event.templateId !== 'NO_FOOD';
+    const showMenuButtons = event.templateId !== 'NO_FOOD';
     const isKitchenUser = userRole === 'kitchen';
     const isClientUser = userRole === 'regular';
 
@@ -104,7 +112,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onEdit, onDelete, o
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-warm-gray-500 mt-1">
                         <span className="flex items-center gap-1.5"><Calendar size={14}/> {formatDateRange(event.startDate, event.endDate)}</span>
                         <span className="flex items-center gap-1.5"><Clock size={14}/> {event.session.charAt(0).toUpperCase() + event.session.slice(1)}</span>
-                        <span className="flex items-center gap-1.5"><MapPin size={14}/> {event.location}</span>
+                        <span className="flex items-center gap-1.5"><MapPin size={14}/> {event.location} {restaurantName && `(${restaurantName})`}</span>
                         <span className="flex items-center gap-1.5"><Users size={14}/> {event.pax || 0} PAX</span>
                     </div>
                 </div>

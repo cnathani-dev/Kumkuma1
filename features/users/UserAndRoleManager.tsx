@@ -40,7 +40,14 @@ export const UserAndRoleManager = ({ canModify }: { canModify: boolean }) => {
     
     const handleDeleteUser = async (id: string) => {
         if(!canModify) return;
-        if(window.confirm("Are you sure?")) {
+        if(window.confirm("Are you sure you want to delete this staff user? This action cannot be undone.")) {
+            await deleteUser(id);
+        }
+    }
+
+    const handleDeleteClientUser = async (id: string) => {
+        if(!canModify) return;
+        if(window.confirm("Are you sure you want to delete this client's account? This will revoke their system access but will NOT delete their client or event data.")) {
             await deleteUser(id);
         }
     }
@@ -94,7 +101,7 @@ export const UserAndRoleManager = ({ canModify }: { canModify: boolean }) => {
             {activeTab === 'users' ? 
                 <div className="space-y-8">
                     <UserTable title="Staff Users" users={staffUsers} onAdd={() => setModalState({ type: 'user', data: null })} onEdit={(u) => setModalState({ type: 'user', data: u})} onDelete={handleDeleteUser} canModify={canModify} roles={roles} />
-                    <UserTable title="Client Users" users={clientUsers} onAdd={null} onEdit={null} onDelete={null} canModify={false} roles={roles}/>
+                    <UserTable title="Client Users" users={clientUsers} onAdd={null} onEdit={null} onDelete={handleDeleteClientUser} canModify={canModify} roles={roles}/>
                 </div>
                  :
                 <RoleList roles={roles} onAdd={() => setModalState({ type: 'role', data: null })} onEdit={(r) => setModalState({ type: 'role', data: r})} onDelete={handleDeleteRole} canModify={canModify} />
@@ -128,16 +135,18 @@ const UserTable = ({ title, users, onAdd, onEdit, onDelete, canModify, roles }: 
                                 <td className="px-4 py-2">{roleName || user.role}</td>
                                 <td className="px-4 py-2">{user.status}</td>
                                 {canModify && <td className="px-4 py-2 text-right">
-                                    {user.username !== 'admin' && onEdit && onDelete &&
                                     <div className="flex justify-end gap-1">
-                                        <button onClick={() => onEdit(user)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit User">
-                                            <Edit size={16} className="text-primary-600" />
-                                        </button>
-                                        <button onClick={() => onDelete(user.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete User">
-                                            <Trash2 size={16} className="text-accent-500" />
-                                        </button>
+                                        {user.username !== 'admin' && onEdit && (
+                                            <button onClick={() => onEdit(user)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit User">
+                                                <Edit size={16} className="text-primary-600" />
+                                            </button>
+                                        )}
+                                        {user.username !== 'admin' && onDelete && (
+                                            <button onClick={() => onDelete(user.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete User">
+                                                <Trash2 size={16} className="text-accent-500" />
+                                            </button>
+                                        )}
                                     </div>
-                                    }
                                 </td>}
                             </tr>
                         );
@@ -371,4 +380,4 @@ const RoleForm = ({ onSave, onCancel, role }: { onSave:(r:any)=>void, onCancel:(
             </div>
         </form>
     )
-}
+};

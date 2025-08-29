@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Event, EventSession, EventState, Client } from '../../types';
-import { useLocations, useMuhurthamDates } from '../../contexts/AppContexts';
+import { useMuhurthamDates, useRestaurants } from '../../contexts/AppContexts';
+import { useManagedLocations } from '../../contexts/AuthContext';
 import { secondaryButton } from '../../components/common/styles';
 import { dateToYYYYMMDD, yyyyMMDDToDate, formatYYYYMMDD } from '../../lib/utils';
 
@@ -19,8 +20,9 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
     selectedLocations: string[],
     onLocationChange: (locations: string[]) => void,
 }) => {
-    const { locations } = useLocations();
+    const locations = useManagedLocations();
     const { muhurthamDates, addMuhurthamDate, deleteMuhurthamDateByDate } = useMuhurthamDates();
+    const { restaurants } = useRestaurants();
     const [currentDate, setCurrentDate] = useState(new Date());
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, date: string } | null>(null);
 
@@ -28,6 +30,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
     const locationColorMap = useMemo(() => new Map(locations.map(loc => [loc.name, loc.color || '#fff8e1'])), [locations]);
     const muhurthamDatesSet = useMemo(() => new Set(muhurthamDates.map(d => d.date)), [muhurthamDates]);
     const selectedLocationsSet = useMemo(() => new Set(selectedLocations), [selectedLocations]);
+    const restaurantMap = useMemo(() => new Map(restaurants.map(r => [r.id, r.name])), [restaurants]);
 
     const changeMonth = (offset: number) => {
         setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
@@ -221,6 +224,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
                                             const locationColor = locationColorMap.get(event.location);
                                             const sessionInitial = event.session.charAt(0).toUpperCase();
                                             const statusColor = event.state === 'confirmed' ? 'bg-green-500' : 'bg-yellow-400';
+                                            const restaurantName = event.location === 'ODC' && event.restaurantId ? restaurantMap.get(event.restaurantId) : null;
                                             
                                             return (
                                                 <div
@@ -234,7 +238,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
                                                             <span className={`w-2 h-2 rounded-full ${statusColor} flex-shrink-0`} title={event.state}></span>
                                                             <div className="overflow-hidden">
                                                                 <p className="font-semibold text-black/80 truncate">{clientName}</p>
-                                                                <p className="text-xs text-black/60 truncate">{event.eventType} ({event.pax} PAX)</p>
+                                                                <p className="text-xs text-black/60 truncate">{event.eventType} {restaurantName && `(${restaurantName})`} ({event.pax} PAX)</p>
                                                             </div>
                                                         </div>
                                                         <div
@@ -256,6 +260,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
                                 const { event, startCol, span } = segment;
                                 const locationColor = locationColorMap.get(event.location);
                                 const clientName = clientMap.get(event.clientId) || 'Unknown Client';
+                                const restaurantName = event.location === 'ODC' && event.restaurantId ? restaurantMap.get(event.restaurantId) : null;
                                 return (
                                     <div
                                         key={`${event.id}-${weekIndex}-${segIndex}`}
@@ -274,7 +279,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
                                             <span className={`w-2 h-2 rounded-full flex-shrink-0`} style={{ backgroundColor: statusColors[event.state] }} title={event.state}></span>
                                             <div className="overflow-hidden">
                                                 <p className="font-semibold text-black/80 leading-tight truncate">{clientName}</p>
-                                                <p className="text-xs text-black/60 leading-tight truncate">{event.eventType} ({event.pax} PAX)</p>
+                                                <p className="text-xs text-black/60 leading-tight truncate">{event.eventType} {restaurantName && `(${restaurantName})`} ({event.pax} PAX)</p>
                                             </div>
                                         </div>
                                     </div>

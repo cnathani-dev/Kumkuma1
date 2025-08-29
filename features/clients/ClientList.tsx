@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useEffect } from 'react';
 import { Client, Event, EventState, FinancialHistoryEntry } from '../../types';
 import { useClients, useClientTasks, useEvents, useReferralSources } from '../../contexts/AppContexts';
@@ -256,6 +255,17 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
 
     const handleClientStepSave = async (clientData: Omit<Client, 'id'>) => {
         if (!currentUser) return alert("Authentication error.");
+        
+        const phone = clientData.phone.trim();
+        if (phone) {
+            const existingClient = clients.find(c => c.phone === phone);
+            if (existingClient) {
+                alert("A client with this phone number already exists. Taking you to their page.");
+                handleCloseWizard();
+                onClientClick(existingClient.id);
+                return; // Stop execution
+            }
+        }
 
         try {
             const historyEntry: FinancialHistoryEntry = {

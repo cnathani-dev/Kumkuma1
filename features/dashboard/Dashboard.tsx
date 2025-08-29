@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useEvents, useClients, useCompetitionSettings, useLostReasonSettings } from '../../contexts/AppContexts';
-import { useAuth, useUserPermissions } from '../../contexts/AuthContext';
+import { useAuth, useUserPermissions, useManagedLocations } from '../../contexts/AuthContext';
 import { Event, EventSession, EventState, StateChangeHistoryEntry, PermissionLevel, UserRole, Client } from '../../types';
 import { EventCard } from '../../components/EventCard';
 import MenuCreator from '../menu-creator/MenuCreator';
@@ -54,6 +54,7 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
     const permissions = useUserPermissions();
     const { settings: competitionSettings } = useCompetitionSettings();
     const { settings: lostReasonSettings } = useLostReasonSettings();
+    const managedLocations = useManagedLocations();
 
     const { view, dateFilter, activeFilter, selectedLocations } = dashboardState;
     const setView = (newView: 'grid' | 'calendar') => setDashboardState(prev => ({...prev, view: newView, dateFilter: null}));
@@ -78,6 +79,20 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
     
     const [isEventModalOpen, setIsEventModalOpen] = useState(false);
     const [eventToEdit, setEventToEdit] = useState<Event | null>(null);
+
+    useEffect(() => {
+        // Clean up selectedLocations if they are no longer managed by the current user
+        if (currentUser && currentUser.role !== 'admin') {
+            const managedLocationNames = new Set(managedLocations.map(l => l.name));
+            setDashboardState(prev => {
+                const newSelected = prev.selectedLocations.filter(locName => managedLocationNames.has(locName));
+                if (newSelected.length !== prev.selectedLocations.length) {
+                    return { ...prev, selectedLocations: newSelected };
+                }
+                return prev;
+            });
+        }
+    }, [managedLocations, currentUser, setDashboardState]);
 
     const eventsToDisplay = useMemo(() => {
         return eventsFilter ? eventsFilter(managedEvents) : managedEvents;
@@ -273,21 +288,11 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
         setEventToMarkAsLost(null);
     };
 
-    const handleSaveMenu = (updatedEvent: Event) => {
+    const handleEditorSave = (updatedEvent: Event) => {
+        setSelectedEvent(updatedEvent);
         updateEvent(updatedEvent);
-        setPageState('LIST');
-        setSelectedEvent(null);
     };
-    const handleSaveFinance = (updatedEvent: Event) => {
-        updateEvent(updatedEvent);
-        setPageState('LIST');
-        setSelectedEvent(null);
-    };
-    const handleSaveServicePlan = (updatedEvent: Event) => {
-        updateEvent(updatedEvent);
-        setPageState('LIST');
-        setSelectedEvent(null);
-    };
+    
     const handleBackFromKitchenPlan = () => {
         setPageState('LIST');
         setSelectedEvent(null);
@@ -344,12 +349,12 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
                 </div>
             );
         }
-        return <MenuCreator initialEvent={selectedEvent} client={client} onSave={handleSaveMenu} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} />;
+        return <MenuCreator initialEvent={selectedEvent} client={client} onSave={handleEditorSave} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} />;
     }
     if (pageState === 'FINANCE' && selectedEvent && permissions) {
         return <FinanceManager 
             event={selectedEvent} 
-            onSave={handleSaveFinance} 
+            onSave={handleEditorSave} 
             onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} 
             permissionCore={permissions.financeCore}
             permissionCharges={permissions.financeCharges}
@@ -358,7 +363,7 @@ export const Dashboard = ({ onNavigate, managedEvents, onNavigateToMenu, showSta
         />;
     }
      if (pageState === 'SERVICE_PLANNER' && selectedEvent) {
-        return <ServicePlannerPage event={selectedEvent} onSave={handleSaveServicePlan} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} canModify={canModify} />;
+        return <ServicePlannerPage event={selectedEvent} onSave={handleEditorSave} onCancel={() => { setPageState('LIST'); setSelectedEvent(null); }} canModify={canModify} />;
     }
     if (pageState === 'KITCHEN_PLAN' && selectedEvent) {
        return <KitchenPlanPage event={selectedEvent} onCancel={handleBackFromKitchenPlan} />;
