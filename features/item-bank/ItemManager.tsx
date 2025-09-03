@@ -4,7 +4,7 @@ import { useItems, useAppCategories } from '../../contexts/AppContexts';
 import { Item, AppCategory, ItemType, PermissionLevel } from '../../types';
 import Modal from '../../components/Modal';
 import { primaryButton, secondaryButton, inputStyle, iconButton, dangerButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save, X, GripVertical, ListOrdered, ArrowUpAZ, ArrowDownAZ, Merge, Move, Leaf, Egg, Beef, Shrimp, Fish, Drumstick } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, X, GripVertical, ListOrdered, ArrowUpAZ, ArrowDownAZ, Merge, Move, Leaf, Egg, Beef, Shell, Fish, Drumstick } from 'lucide-react';
 import { generateCategoryOptions } from '../../lib/ui-helpers';
 import { CategoryTree } from '../../components/CategoryTree';
 import { ServiceArticleAssignment } from './ServiceArticleAssignment';
@@ -24,11 +24,11 @@ const ItemTypeIcon = ({ type }: { type?: ItemType }) => {
         case 'mutton':
             return <span title="Mutton"><Beef size={14} className="text-red-600 flex-shrink-0" /></span>;
         case 'prawns':
-            return <span title="Prawns"><Shrimp size={14} className="text-pink-600 flex-shrink-0" /></span>;
+            return <span title="Prawns"><Shell size={14} className="text-pink-600 flex-shrink-0" /></span>;
         case 'fish':
             return <span title="Fish"><Fish size={14} className="text-blue-600 flex-shrink-0" /></span>;
         case 'crab':
-            return <span title="Crab"><Shrimp size={14} className="text-red-500 flex-shrink-0" /></span>;
+            return <span title="Crab"><Shell size={14} className="text-red-500 flex-shrink-0" /></span>;
         case 'other':
         default:
             return null;

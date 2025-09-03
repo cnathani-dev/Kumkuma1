@@ -1,11 +1,9 @@
-
-
-
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn } from 'lucide-react';
 
-const LoginPage: React.FC = () => {
+const LoginPage: React.FC<{ onNavigateToSignUp: () => void }> = ({ onNavigateToSignUp }) => {
+    console.log("LoginPage.tsx: Rendering.");
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -50,13 +48,13 @@ const LoginPage: React.FC = () => {
                             <input
                                 id="username"
                                 name="username"
-                                type="text"
-                                autoComplete="username"
+                                type="email"
+                                autoComplete="email"
                                 required
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 className={inputStyle}
-                                placeholder="Username"
+                                placeholder="Email Address"
                             />
                         </div>
                         <div>
@@ -92,6 +90,12 @@ const LoginPage: React.FC = () => {
                         </button>
                     </div>
                 </form>
+                 <p className="mt-6 text-sm text-center text-warm-gray-600 dark:text-warm-gray-400">
+                    Don't have an account?{' '}
+                    <button onClick={onNavigateToSignUp} className="font-medium text-primary-600 hover:text-primary-500 hover:underline">
+                        Sign up
+                    </button>
+                </p>
             </div>
         </div>
     );

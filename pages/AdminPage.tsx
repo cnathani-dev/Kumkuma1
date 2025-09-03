@@ -1,8 +1,6 @@
-
-
 import React, { useState, useMemo } from 'react';
 import { useTemplates, useClients, useAppCategories, useItems, useOrders, useRecipes, usePlatters, useRawMaterials, useOrderTemplates, useUnits, useLiveCounters, useLiveCounterItems, useItemAccompaniments } from '../contexts/AppContexts';
-import { useUserPermissions } from '../contexts/AuthContext';
+import { useUserPermissions } from '../hooks/usePermissions';
 import { Catalog, Client, Event, MenuTemplate, AppPermissions, UserRole, Order, Recipe, Platter, RawMaterial, OrderTemplate, LiveCounter, LiveCounterItem, Item, AppCategory, EventState, ItemAccompaniment } from '../types';
 import { AuditLogViewer } from '../features/audit/AuditLogViewer';
 import { CatalogEditor, CatalogManager } from '../features/catalogs/CatalogManager';
@@ -44,8 +42,8 @@ function AdminPage({ activePage, onNavigate, permissions, userRole, managedEvent
     userRole: UserRole,
     managedEvents: Event[],
     clients: Client[],
-    clientListFilters: { name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string, stateChangeFilters: { state: EventState, period: 'this_week' } | null },
-    setClientListFilters: React.Dispatch<React.SetStateAction<{ name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string, stateChangeFilters: { state: EventState, period: 'this_week' } | null }>>,
+    clientListFilters: { name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string, stateChangeFilters: { state: EventState, period: 'this_week' } | null, location: string[] },
+    setClientListFilters: React.Dispatch<React.SetStateAction<{ name: string; phone: string; status: "active" | "inactive" | "all"; eventState: 'all' | 'lead' | 'confirmed' | 'lost' | 'cancelled'; tasks: 'all' | 'overdue', startDate: string, endDate: string, creationStartDate: string, creationEndDate: string, referredBy: string, stateChangeFilters: { state: EventState, period: 'this_week' } | null, location: string[] }>>,
     dashboardState: { view: 'grid' | 'calendar', dateFilter: string | null, activeFilter: EventFilter, selectedLocations: string[] },
     setDashboardState: React.Dispatch<React.SetStateAction<{ view: 'grid' | 'calendar', dateFilter: string | null, activeFilter: EventFilter, selectedLocations: string[] }>>
 }) {

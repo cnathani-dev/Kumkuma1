@@ -1,5 +1,4 @@
-
-import { addDoc, collection } from 'firebase/firestore';
+import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AuditLog } from '../types';
 import { cleanForFirebase } from './utils';

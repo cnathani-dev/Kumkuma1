@@ -5,6 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='white'/%3E%3Ctext x='50' y='75' font-family='Cormorant Garamond, serif' font-size='80' font-weight='700' fill='%23c43c3b' text-anchor='middle'%3EK%3C/text%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kumkuma Caterers</title>
+    <script>console.log('index.html: Script execution started in <head>.');</script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
@@ -64,6 +65,12 @@
         }
       }
     </script>
+  <style>
+      html {
+        /* Adjust base font size to make all rem-based units larger */
+        font-size: 100%; /* 1rem = 16px */
+      }
+    </style>
   <script type="importmap">
 {
   "imports": {
@@ -77,14 +84,16 @@
     "uuid": "https://esm.sh/uuid@^11.1.0",
     "xlsx": "https://esm.sh/xlsx@^0.18.5",
     "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
     "firebase/": "https://esm.sh/firebase@^12.0.0/"
   }
 }
 </script>
 </head>
-  <body class="font-body bg-ivory text-warm-gray-700 dark:bg-warm-gray-900 dark:text-warm-gray-200" style="background-image: url('data:image/svg+xml,%3Csvg width=\"6\" height=\"6\" viewBox=\"0 0 6 6\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Cg fill=\"%23e8a838\" fill-opacity=\"0.1\"%3E%3Cpath d=\"M5 0h1L0 6V5zM6 5v1H5z\"/%3E%3C/g%3E%3C/svg%3E');">
+  <body class="font-body bg-ivory text-warm-gray-700 dark:bg-warm-gray-900 dark:text-warm-gray-200" style="background-image: url('data:image/svg+xml,%3Csvg width=\"6\" height=\"6\" viewBox=\"0 0 6\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Cg fill=\"%23e8a838\" fill-opacity=\"0.1\"%3E%3Cpath d=\"M5 0h1L0 6V5zM6 5v1H5z\"/%3E%3C/g%3E%3C/svg%3E');">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="./index.tsx"></script>
+    <script>console.log('index.html: Page parsing finished, module script is requested.');</script>
   </body>
 </html>

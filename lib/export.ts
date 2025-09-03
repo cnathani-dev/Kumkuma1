@@ -859,27 +859,32 @@ export const exportLiveCountersToPdf = (
                 addPage();
             }
             
-            // Draw Counter Header
+            // --- Draw Counter Header & Separator (Refactored for better spacing control) ---
             doc.setFont('times', 'bold');
             doc.setFontSize(16);
-            doc.setTextColor(accentColor); // Changed to accent color
+            doc.setTextColor(accentColor);
             doc.text(counter.name, margin, y);
-            y += 6;
-            
+            y += 7; // Move cursor down past the title text (approx height + small gap)
+
             if (counter.description) {
                 doc.setFont('helvetica', 'italic');
                 doc.setFontSize(9);
                 doc.setTextColor(lightTextColor);
                 const descLines = doc.splitTextToSize(counter.description, contentWidth);
                 doc.text(descLines, margin, y);
-                y += (descLines.length * 4) + 2;
+                y += (descLines.length * 4) + 2; // Move cursor down past description + small gap
             }
-            
-            y += 2; // Space before line
+
+            // Draw Separator Line with controlled spacing
+            const spaceAboveLine = 2;
+            const spaceBelowLine = 4; // Increased this value to ensure no touching
+
+            y += spaceAboveLine;
             doc.setDrawColor(primaryColor);
             doc.setLineWidth(0.2);
             doc.line(margin, y, margin + contentWidth, y);
-            y += 4; // Space after line
+            y += spaceBelowLine;
+
 
             // Draw Items
             for (const item of items) {

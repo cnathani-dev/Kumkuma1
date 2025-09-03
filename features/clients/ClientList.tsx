@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Client, Event, EventState, FinancialHistoryEntry } from '../../types';
-import { useClients, useClientTasks, useEvents, useReferralSources } from '../../contexts/AppContexts';
+import { useClients, useClientTasks, useEvents, useReferralSources, useLocations } from '../../contexts/AppContexts';
 import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../../components/Modal';
 import { ClientForm } from '../../components/forms/ClientForm';
@@ -21,6 +21,7 @@ type FilterShape = {
     creationEndDate: string;
     referredBy: string;
     stateChangeFilters: { state: EventState, period: 'this_week' } | null;
+    location: string[];
 };
 
 const defaultFilters: Omit<FilterShape, 'name' | 'phone'> = {
@@ -33,6 +34,7 @@ const defaultFilters: Omit<FilterShape, 'name' | 'phone'> = {
     creationEndDate: '',
     referredBy: '',
     stateChangeFilters: null,
+    location: [],
 };
 
 const ActiveFilterPill = ({ label, onRemove }: { label: string, onRemove: () => void }) => (
@@ -109,6 +111,7 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
     const { currentUser } = useAuth();
     const { tasks } = useClientTasks();
     const { settings: referralSources } = useReferralSources();
+    const { locations } = useLocations();
     
     const overdueTasksByClient = useMemo(() => {
         const map = new Map<string, boolean>();
@@ -145,6 +148,23 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
         });
         return clientIds;
     }, [events, filters.startDate, filters.endDate]);
+
+    const locationFilteredClientIds = useMemo(() => {
+        const { location } = filters;
+        if (!location || location.length === 0) {
+            return null; // No filter applied
+        }
+
+        const selectedLocations = new Set(location);
+        const clientIds = new Set<string>();
+
+        events.forEach(event => {
+            if (selectedLocations.has(event.location)) {
+                clientIds.add(event.clientId);
+            }
+        });
+        return clientIds;
+    }, [events, filters.location]);
 
     const stateChangeFilteredClientIds = useMemo(() => {
         const { stateChangeFilters } = filters;
@@ -221,6 +241,10 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
                 return false;
             }
 
+            if (locationFilteredClientIds !== null && !locationFilteredClientIds.has(client.id)) {
+                return false;
+            }
+
             const { creationStartDate, creationEndDate } = filters;
             if (creationStartDate || creationEndDate) {
                 const creationEntry = client.history?.find(h => h.action === 'created');
@@ -241,7 +265,7 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
     
             return true;
         });
-    }, [clients, events, filters, overdueTasksByClient, dateFilteredClientIds, stateChangeFilteredClientIds]);
+    }, [clients, events, filters, overdueTasksByClient, dateFilteredClientIds, stateChangeFilteredClientIds, locationFilteredClientIds]);
 
     const handleOpenWizard = () => {
         setNewlyCreatedClient(null);
@@ -319,6 +343,18 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
     const handleButtonFilterChange = (name: keyof FilterShape, value: string) => {
         setFilters(prev => ({ ...prev, [name]: value as any, stateChangeFilters: null }));
     };
+
+    const handleLocationToggle = (locationName: string) => {
+        setFilters(prev => {
+            const newLocations = new Set(prev.location || []);
+            if (newLocations.has(locationName)) {
+                newLocations.delete(locationName);
+            } else {
+                newLocations.add(locationName);
+            }
+            return { ...prev, location: Array.from(newLocations), stateChangeFilters: null };
+        });
+    };
     
     const handleQuickFilter = (type: 'walkinsThisWeek' | 'phoneEnquiriesThisWeek' | 'confirmedThisWeek' | 'lostThisWeek') => {
         const now = new Date();
@@ -373,6 +409,7 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
         if(filters.creationStartDate && !filters.referredBy) pills.push(<ActiveFilterPill key="creationStartDate" label={`Created From: ${filters.creationStartDate}`} onRemove={() => handleRemoveFilter('creationStartDate')} />);
         if(filters.creationEndDate && !filters.referredBy) pills.push(<ActiveFilterPill key="creationEndDate" label={`Created To: ${filters.creationEndDate}`} onRemove={() => handleRemoveFilter('creationEndDate')} />);
         if(filters.referredBy && !filters.creationStartDate) pills.push(<ActiveFilterPill key="referredBy" label={`Source: ${filters.referredBy}`} onRemove={() => handleRemoveFilter('referredBy')} />);
+        if(filters.location && filters.location.length > 0) pills.push(<ActiveFilterPill key="location" label={`Location: ${filters.location.join(', ')}`} onRemove={() => handleRemoveFilter('location')} />);
         return pills;
     };
     
@@ -476,6 +513,25 @@ export const ClientList = ({ clients, events, onClientClick, filters, setFilters
                             <div>
                                 <label className="block text-sm font-medium">Client Creation End Date</label>
                                 <input type="date" name="creationEndDate" value={filters.creationEndDate} onChange={handleFilterChange} className={inputStyle} />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Event Location</label>
+                            <div className="mt-1 flex flex-wrap gap-2">
+                                {locations.slice().sort((a,b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity) || a.name.localeCompare(b.name)).map(loc => (
+                                    <button
+                                        key={loc.id}
+                                        type="button"
+                                        onClick={() => handleLocationToggle(loc.name)}
+                                        className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${
+                                            filters.location?.includes(loc.name)
+                                                ? 'bg-primary-500 text-white border-primary-500'
+                                                : 'bg-white dark:bg-warm-gray-800 border-warm-gray-300 dark:border-warm-gray-600 text-warm-gray-700 dark:text-warm-gray-300 hover:bg-primary-50 dark:hover:bg-primary-900/40 hover:border-primary-300'
+                                        }`}
+                                    >
+                                        {loc.name}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                         <div className="flex justify-end">

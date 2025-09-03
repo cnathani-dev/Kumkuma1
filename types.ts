@@ -103,6 +103,8 @@ export interface Client {
   hasSystemAccess: boolean;
   status: 'active' | 'inactive';
   history?: FinancialHistoryEntry[];
+  isAdvanceClient?: boolean;
+  transactions?: Transaction[];
 }
 
 export interface Charge {
@@ -180,7 +182,8 @@ export interface User {
   username: string;
   password?: string;
   role: UserRole;
-  status: 'active' | 'inactive';
+  // FIX: Added 'pending' status to support the user sign-up approval flow.
+  status: 'active' | 'inactive' | 'pending';
   assignedClientId?: string;
   roleId?: string;
   managedLocationIds?: string[];

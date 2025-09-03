@@ -54,7 +54,8 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
         setEvent(deepClone(initialEvent));
     }, [initialEvent]);
 
-    const clientName = useMemo(() => clients.find(c => c.id === event.clientId)?.name || 'N/A', [clients, event.clientId]);
+    const client = useMemo(() => clients.find(c => c.id === event.clientId), [clients, event.clientId]);
+    const clientName = useMemo(() => client?.name || 'N/A', [client]);
     const liveCounterMap = useMemo(() => new Map(liveCounters.map(lc => [lc.id, lc])), [liveCounters]);
     const templateMap = useMemo(() => new Map(templates.map(t => [t.id, t])), [templates]);
 
@@ -513,7 +514,16 @@ export const FinanceManager = ({ event: initialEvent, onSave, onCancel, permissi
                         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show Deleted</label>
                     </div>
                     {permissionCharges !== 'none' && <Section title="Additional Charges" data={event.charges || []} type="charge" permissionLevel={permissionCharges} />}
-                    {permissionPayments !== 'none' && <Section title="Payments (Income)" data={(event.transactions || []).filter(t => t.type === 'income')} type="transaction" permissionLevel={permissionPayments} />}
+                    {client?.isAdvanceClient ? (
+                        <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
+                            <h3 className="font-bold text-lg">Payments (Income)</h3>
+                            <p className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm rounded-md">
+                                This client uses client-level advance payments. All payments should be recorded in the main client "Finances" section, not at the event level.
+                            </p>
+                        </div>
+                    ) : (
+                        permissionPayments !== 'none' && <Section title="Payments (Income)" data={(event.transactions || []).filter(t => t.type === 'income')} type="transaction" permissionLevel={permissionPayments} />
+                    )}
                     {permissionExpenses !== 'none' && <Section title="Expenses" data={(event.transactions || []).filter(t => t.type === 'expense')} type="transaction" permissionLevel={permissionExpenses} />}
                 </div>
             </div>

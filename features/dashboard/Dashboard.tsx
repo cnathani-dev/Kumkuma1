@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useEvents, useClients, useCompetitionSettings, useLostReasonSettings } from '../../contexts/AppContexts';
-import { useAuth, useUserPermissions, useManagedLocations } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { useUserPermissions, useManagedLocations } from '../../hooks/usePermissions';
 import { Event, EventSession, EventState, StateChangeHistoryEntry, PermissionLevel, UserRole, Client } from '../../types';
 import { EventCard } from '../../components/EventCard';
 import MenuCreator from '../menu-creator/MenuCreator';
@@ -12,30 +13,8 @@ import { LayoutGrid, Calendar as CalendarIcon, ArrowLeft, X, CalendarDays, Badge
 import { ServicePlannerPage } from '../service-planning/ServicePlannerPage';
 import { KitchenPlanPage } from '../kitchen-plan/KitchenPlanPage';
 import Modal from '../../components/Modal';
-import { formatYYYYMMDD, yyyyMMDDToDate } from '../../lib/utils';
+import { formatYYYYMMDD, yyyyMMDDToDate, calculateFinancials } from '../../lib/utils';
 import { EventForm } from '../../components/forms/EventForm';
-
-const calculateFinancials = (event: Event) => {
-    const model = event.pricingModel || 'variable';
-    const pax = event.pax || 0;
-    const perPax = event.perPaxPrice || 0;
-    const rent = event.rent || 0;
-    
-    let baseCost = 0;
-    if (model === 'variable') baseCost = pax * perPax;
-    else if (model === 'flat') baseCost = rent;
-    else if (model === 'mix') baseCost = rent + (pax * perPax);
-
-    const totalCharges = (event.charges || []).filter(c => !c.isDeleted).reduce((sum, charge) => sum + charge.amount, 0);
-    const totalPayments = (event.transactions || []).filter(t => t.type === 'income' && !t.isDeleted).reduce((sum, payment) => sum + payment.amount, 0);
-    const totalExpenses = (event.transactions || []).filter(t => t.type === 'expense' && !t.isDeleted).reduce((sum, expense) => sum + expense.amount, 0);
-
-    const totalBill = baseCost + totalCharges;
-    const balanceDue = totalBill - totalPayments;
-    const profit = totalBill - totalExpenses;
-
-    return { totalBill, totalPayments, totalExpenses, balanceDue, profit };
-};
 
 type EventFilter = 'upcoming' | 'leads' | 'finalize' | 'collect' | null;
 

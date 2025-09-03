@@ -1,14 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEvents, useClients, useCompetitionSettings, useLostReasonSettings } from '../contexts/AppContexts';
-import { useUserPermissions, useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useUserPermissions } from '../hooks/usePermissions';
 import { Event, Client, EventState, StateChangeHistoryEntry, FinancialHistoryEntry } from '../types';
 import MenuCreator from '../features/menu-creator/MenuCreator';
-import { Plus, Edit, Trash2, Copy, UserCheck, Building, Phone, Mail, Map as MapIcon, Briefcase, Copy as CopyIcon, ArrowLeft, FilePenLine } from 'lucide-react';
+import { Plus, Edit, Trash2, Copy, Building, Phone, Mail, Map as MapIcon, Briefcase, Copy as CopyIcon, ArrowLeft, Banknote } from 'lucide-react';
 import Modal from '../components/Modal';
 import { primaryButton, dangerButton, secondaryButton, inputStyle, iconButton } from '../components/common/styles';
 import { ClientForm } from '../components/forms/ClientForm';
 import { EventForm } from '../components/forms/EventForm';
 import { FinanceManager } from '../features/finance/FinanceManager';
+import { ClientFinanceManager } from '../features/finance/ClientFinanceManager';
 import { ServicePlannerPage } from '../features/service-planning/ServicePlannerPage';
 import { KitchenPlanPage } from '../features/kitchen-plan/KitchenPlanPage';
 import { EventsTab } from '../features/clients/tabs/EventsTab';
@@ -23,7 +25,8 @@ interface ClientDetailsPageProps {
   eventToEditId?: string | null;
 }
 
-type PageState = 'LIST' | 'MENU_CREATOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN';
+type PageState = 'LIST' | 'MENU_CREATOR' | 'FINANCE' | 'SERVICE_PLANNER' | 'KITCHEN_PLAN' | 'CLIENT_FINANCE';
+type TabName = 'events' | 'tasks' | 'activities' | 'history';
 
 const generateChanges = (oldData: any, newData: any, fields: string[]): { field: string, from: any, to: any }[] => {
     const changes: { field: string, from: any, to: any }[] = [];
@@ -53,7 +56,7 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({
     // Page state
     const [pageState, setPageState] = useState<PageState>('LIST');
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-    const [activeTab, setActiveTab] = useState<'events' | 'tasks' | 'activities' | 'history'>('events');
+    const [activeTab, setActiveTab] = useState<TabName>('events');
 
     // Modal states
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -116,7 +119,7 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({
         setEventToEdit(null);
     };
     
-    const handleNavigateToPage = (event: Event, state: PageState) => {
+    const handleNavigateToPage = (event: Event | null, state: PageState) => {
         setSelectedEvent(event);
         setPageState(state);
     };
@@ -189,31 +192,28 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({
     };
 
     const handleEditorSave = async (updatedEvent: Event) => {
-        // By setting the local state *before* awaiting the database update,
-        // we ensure the UI updates immediately and stays on the editor page.
-        // This prevents a potential race condition where a top-down re-render
-        // from the database snapshot listener could occur before the local state is updated.
         setSelectedEvent(updatedEvent);
         await updateEvent(updatedEvent);
     };
 
-    if (pageState !== 'LIST' && selectedEvent && client) {
+    if (!client) return <div className="text-center p-8"><p>Loading client...</p></div>;
+
+    if (pageState !== 'LIST') {
         switch (pageState) {
-            case 'MENU_CREATOR': return <MenuCreator initialEvent={selectedEvent} client={client} onSave={handleEditorSave} onCancel={() => setPageState('LIST')} />;
+            case 'MENU_CREATOR': return <MenuCreator initialEvent={selectedEvent!} client={client} onSave={handleEditorSave} onCancel={() => setPageState('LIST')} />;
             case 'FINANCE': return <FinanceManager 
-                event={selectedEvent} 
+                event={selectedEvent!} 
                 onSave={handleEditorSave} 
                 onCancel={() => setPageState('LIST')} 
                 permissionCore={permissions?.financeCore || 'none'} 
                 permissionCharges={permissions?.financeCharges || 'none'} 
                 permissionPayments={permissions?.financePayments || 'none'} 
                 permissionExpenses={permissions?.financeExpenses || 'none'} />;
-            case 'SERVICE_PLANNER': return <ServicePlannerPage event={selectedEvent} onSave={handleEditorSave} onCancel={() => setPageState('LIST')} canModify={permissions?.clientsAndEvents === 'modify'} />;
-            case 'KITCHEN_PLAN': return <KitchenPlanPage event={selectedEvent} onCancel={() => setPageState('LIST')} />;
+            case 'SERVICE_PLANNER': return <ServicePlannerPage event={selectedEvent!} onSave={handleEditorSave} onCancel={() => setPageState('LIST')} canModify={permissions?.clientsAndEvents === 'modify'} />;
+            case 'KITCHEN_PLAN': return <KitchenPlanPage event={selectedEvent!} onCancel={() => setPageState('LIST')} />;
+            case 'CLIENT_FINANCE': return <ClientFinanceManager client={client} clientEvents={clientEvents} onSave={updateClient} onCancel={() => setPageState('LIST')} />;
         }
     }
-
-    if (!client) return <div className="text-center p-8"><p>Loading client...</p></div>;
 
     const canModify = permissions?.clientsAndEvents === 'modify';
     const canAccessFinances = permissions?.financeCore !== 'none' || permissions?.financeCharges !== 'none' || permissions?.financePayments !== 'none' || permissions?.financeExpenses !== 'none';
@@ -245,6 +245,11 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({
                     </div>
                 </div>
                  <div className="flex items-center gap-2">
+                    {client.isAdvanceClient && !isRegularUser && (
+                        <button onClick={() => handleNavigateToPage(null, 'CLIENT_FINANCE')} className={secondaryButton}>
+                            <Banknote size={16}/> Finances
+                        </button>
+                    )}
                     {!isRegularUser && canModify && <button onClick={() => setIsClientModalOpen(true)} className={secondaryButton}><Edit size={16}/> Edit Client</button>}
                     {!isRegularUser && currentUser?.role === 'admin' && (
                         <button onClick={handleDeleteClient} className={dangerButton}>
@@ -256,7 +261,7 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({
 
             {!isRegularUser && (
                 <div className="border-b border-warm-gray-200 dark:border-warm-gray-700 mb-6">
-                    <nav className="-mb-px flex space-x-8">
+                    <nav className="-mb-px flex space-x-8 overflow-x-auto">
                         <button onClick={() => setActiveTab('events')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'events' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>Events</button>
                         <button onClick={() => setActiveTab('tasks')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'tasks' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>Tasks</button>
                         <button onClick={() => setActiveTab('activities')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'activities' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>Activities</button>
@@ -266,7 +271,7 @@ export const ClientDetailsPage: React.FC<ClientDetailsPageProps> = ({
             )}
             
             <div>
-                {activeTab === 'events' && <EventsTab clientEvents={clientEvents} canModify={canModify} canAccessFinances={canAccessFinances} onAddEvent={() => { setEventToEdit(null); setIsEventModalOpen(true); }} onEditEvent={(e) => { setEventToEdit(e); setIsEventModalOpen(true); }} onDeleteEvent={handleDeleteEvent} onDuplicateEvent={handleDuplicateEvent} onNavigate={handleNavigateToPage} onStateChange={handleStateChange} onRequestCancel={handleRequestCancel} onRequestLost={handleRequestLost} />}
+                {activeTab === 'events' && <EventsTab clientEvents={clientEvents} canModify={canModify} canAccessFinances={canAccessFinances} onAddEvent={() => { setEventToEdit(null); setIsEventModalOpen(true); }} onEditEvent={(e) => { setEventToEdit(e); setIsEventModalOpen(true); }} onDeleteEvent={handleDeleteEvent} onDuplicateEvent={handleDuplicateEvent} onNavigate={(e, s) => handleNavigateToPage(e,s)} onStateChange={handleStateChange} onRequestCancel={handleRequestCancel} onRequestLost={handleRequestLost} />}
                 {activeTab === 'tasks' && <TasksTab client={client} />}
                 {activeTab === 'activities' && <ActivitiesTab client={client} />}
                 {activeTab === 'history' && <HistoryTab client={client} />}

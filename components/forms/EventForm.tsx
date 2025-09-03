@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Event, EventSession, EventState, MenuTemplate, LocationSetting, MenuSelectionStatus } from '../../types';
 import { useTemplates, useEventTypes, useMuhurthamDates, useCatalogs, useAppCategories, useRestaurants } from '../../contexts/AppContexts';
-import { useManagedLocations } from '../../contexts/AuthContext';
+import { useManagedLocations } from '../../hooks/usePermissions';
 import { inputStyle, primaryButton, secondaryButton } from '../common/styles';
 import { Save } from 'lucide-react';
 import { dateToYYYYMMDD } from '../../lib/utils';

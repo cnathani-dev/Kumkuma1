@@ -1,8 +1,8 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Event, EventSession, EventState, Client } from '../../types';
 import { useMuhurthamDates, useRestaurants } from '../../contexts/AppContexts';
-import { useManagedLocations } from '../../contexts/AuthContext';
+import { useManagedLocations } from '../../hooks/usePermissions';
 import { secondaryButton } from '../../components/common/styles';
 import { dateToYYYYMMDD, yyyyMMDDToDate, formatYYYYMMDD } from '../../lib/utils';
 
@@ -25,6 +25,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
     const { restaurants } = useRestaurants();
     const [currentDate, setCurrentDate] = useState(new Date());
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, date: string } | null>(null);
+    const wheelTimeoutRef = useRef<number | null>(null); // For debouncing scroll
 
     const clientMap = useMemo(() => new Map(clients.map(c => [c.id, c.name])), [clients]);
     const locationColorMap = useMemo(() => new Map(locations.map(loc => [loc.name, loc.color || '#fff8e1'])), [locations]);
@@ -35,6 +36,35 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
     const changeMonth = (offset: number) => {
         setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
     };
+    
+    const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+        e.preventDefault(); // Prevent the main page from scrolling
+
+        if (wheelTimeoutRef.current) {
+            return; // Already handling a scroll event, ignore this one
+        }
+        
+        // Use a small threshold to avoid firing on minor trackpad movements
+        if (e.deltaY > 5) {
+            changeMonth(1); // Scrolled down -> next month
+        } else if (e.deltaY < -5) {
+            changeMonth(-1); // Scrolled up -> previous month
+        }
+
+        // Set a timeout to prevent rapid-fire month changes
+        wheelTimeoutRef.current = window.setTimeout(() => {
+            wheelTimeoutRef.current = null;
+        }, 150);
+    };
+    
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (wheelTimeoutRef.current) {
+                clearTimeout(wheelTimeoutRef.current);
+            }
+        };
+    }, []);
 
     const handleLocationToggle = (locationName: string) => {
         const newSet = new Set(selectedLocations);
@@ -154,7 +184,10 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
     }, []);
 
     return (
-        <div className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md">
+        <div 
+            className="bg-white dark:bg-warm-gray-800 p-4 rounded-lg shadow-md"
+            onWheel={handleWheel}
+        >
             {contextMenu && (
                 <div
                     style={{ top: contextMenu.y, left: contextMenu.x }}
@@ -191,7 +224,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
                 <span className="text-sm font-semibold mr-2">Filter:</span>
                  <button onClick={() => handleLocationToggle('ALL')} className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedLocations.length === 0 ? 'bg-primary-500 text-white border-primary-500' : 'bg-transparent border-warm-gray-300'}`}>All</button>
                  {allLocationOptions.map(loc => (
-                     <button key={loc.id} onClick={() => handleLocationToggle(loc.name)} className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedLocations.includes(loc.name) ? 'ring-2 ring-primary-500' : 'opacity-70'}`} style={{backgroundColor: loc.color}}>
+                     <button key={loc.id} onClick={() => handleLocationToggle(loc.name)} className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedLocations.includes(loc.name) ? 'ring-2 ring-primary-500' : 'opacity-70'}`} style={{backgroundColor: loc.color || '#FFFFFF'}}>
                          {loc.name}
                      </button>
                  ))}
@@ -218,7 +251,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
                                     <span className={`relative z-10 font-bold text-xs p-1 rounded-full w-6 h-6 flex items-center justify-center self-end ${isToday ? 'bg-primary-500 text-white' : ''} ${isCurrentMonth ? 'text-warm-gray-700 dark:text-warm-gray-200' : 'text-warm-gray-400 dark:text-warm-gray-500'}`}>
                                         {day.getDate()}
                                     </span>
-                                    <div className="flex-grow overflow-y-auto space-y-1 mt-1 pr-1 -mr-1">
+                                    <div className="flex-grow space-y-1 mt-1 overflow-hidden">
                                         {eventsForDay.map(event => {
                                             const clientName = clientMap.get(event.clientId) || 'Unknown Client';
                                             const locationColor = locationColorMap.get(event.location);
@@ -229,7 +262,7 @@ export const CalendarView = ({ events, onDateSelect, clients, selectedLocations,
                                             return (
                                                 <div
                                                     key={event.id}
-                                                    style={{ backgroundColor: locationColor }}
+                                                    style={{ backgroundColor: locationColor || '#fff8e1' }}
                                                     className="p-1 rounded text-xs shadow-sm cursor-pointer"
                                                     onClick={(e) => { e.stopPropagation(); onDateSelect(event.startDate); }}
                                                 >

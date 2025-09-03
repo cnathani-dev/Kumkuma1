@@ -1,14 +1,9 @@
 
-
-
-
-
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Catalog, Item, AppCategory, ItemType } from '../../types';
 import { useCatalogs, useItems, useAppCategories } from '../../contexts/AppContexts';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save, X, Leaf, Egg, Beef, Shrimp, Fish, Drumstick, Copy, ArrowLeft } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, X, Leaf, Egg, Beef, Shell, Fish, Drumstick, Copy, ArrowLeft } from 'lucide-react';
 import { CategoryTree } from '../../components/CategoryTree';
 
 interface CatalogManagerProps {
@@ -138,11 +133,11 @@ const ItemTypeIcon = ({ type }: { type?: ItemType }) => {
         case 'mutton':
             return <span title="Mutton"><Beef size={14} className="text-red-600 flex-shrink-0" /></span>;
         case 'prawns':
-            return <span title="Prawns"><Shrimp size={14} className="text-pink-600 flex-shrink-0" /></span>;
+            return <span title="Prawns"><Shell size={14} className="text-pink-600 flex-shrink-0" /></span>;
         case 'fish':
             return <span title="Fish"><Fish size={14} className="text-blue-600 flex-shrink-0" /></span>;
         case 'crab':
-            return <span title="Crab"><Shrimp size={14} className="text-red-500 flex-shrink-0" /></span>;
+            return <span title="Crab"><Shell size={14} className="text-red-500 flex-shrink-0" /></span>;
         default:
             return null;
     }

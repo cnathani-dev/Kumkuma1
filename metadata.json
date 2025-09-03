@@ -1,5 +1,5 @@
 {
-  "name": "kb-latest",
+  "name": "kb-user",
   "description": "An application to craft, manage, and export custom menus for Kumkuma Caterers. Features client and template management, live counters, a guided setup wizard, and professional, branded PDF exports.",
   "requestFramePermissions": [],
   "prompt": "",

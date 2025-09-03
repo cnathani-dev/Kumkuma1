@@ -3,23 +3,119 @@ import { User, Role, AppPermissions, Client, LocationSetting, PermissionLevel, U
 import { useUsers, useRoles, useClients, useLocations } from '../../contexts/AppContexts';
 import Modal from '../../components/Modal';
 import { primaryButton, secondaryButton, dangerButton, inputStyle, iconButton } from '../../components/common/styles';
-import { Plus, Edit, Trash2, Save } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, AlertTriangle, GitMerge, Link2 } from 'lucide-react';
+import { doc, writeBatch, getDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
-type ModalState = 
+// A simple heuristic to check if an ID is likely a Firebase UID vs. a Firestore auto-ID
+const isFirebaseUid = (id: string) => id.length > 20;
+
+type ModalState =
     | { type: 'user', data: User | null }
     | { type: 'role', data: Role | null };
+
+const MigrationAndApprovalTool = ({ pendingUsers, legacyUsers, onLinkAndApprove, onClose }: {
+    pendingUsers: User[];
+    legacyUsers: User[];
+    onLinkAndApprove: (pendingUserId: string, legacyUserId: string) => Promise<void>;
+    onClose: () => void;
+}) => {
+    const [selectedPending, setSelectedPending] = useState<string>('');
+    const [selectedLegacy, setSelectedLegacy] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(false);
+    
+    const handleLink = async () => {
+        if (!selectedPending || !selectedLegacy) {
+            alert("Please select one user from each list to link.");
+            return;
+        }
+        setIsLoading(true);
+        try {
+            await onLinkAndApprove(selectedPending, selectedLegacy);
+            setSelectedLegacy('');
+            setSelectedPending('');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm">Link a newly signed-up user to their old data. This will activate their new account and delete the old record.</p>
+            <div className="grid grid-cols-2 gap-6">
+                <div>
+                    <h4 className="font-bold mb-2">1. Select Pending User</h4>
+                    <ul className="h-64 overflow-y-auto border rounded-md p-2 space-y-1 dark:border-warm-gray-700">
+                        {pendingUsers.map(u => (
+                            <li key={u.id}
+                                onClick={() => setSelectedPending(u.id)}
+                                className={`p-2 rounded cursor-pointer ${selectedPending === u.id ? 'bg-primary-100 dark:bg-primary-900/40' : 'hover:bg-warm-gray-100'}`}
+                            >
+                                {u.username}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+                <div>
+                    <h4 className="font-bold mb-2">2. Select Legacy User</h4>
+                    <ul className="h-64 overflow-y-auto border rounded-md p-2 space-y-1 dark:border-warm-gray-700">
+                         {legacyUsers.map(u => (
+                            <li key={u.id}
+                                onClick={() => setSelectedLegacy(u.id)}
+                                className={`p-2 rounded cursor-pointer ${selectedLegacy === u.id ? 'bg-primary-100 dark:bg-primary-900/40' : 'hover:bg-warm-gray-100'}`}
+                            >
+                                {u.username}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            </div>
+            <div className="flex justify-end pt-4">
+                 <button onClick={handleLink} className={primaryButton} disabled={!selectedPending || !selectedLegacy || isLoading}>
+                    <Link2 size={16}/> {isLoading ? 'Linking...' : 'Link & Approve Selected Users'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
 
 export const UserAndRoleManager = ({ canModify }: { canModify: boolean }) => {
     const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
     const [modalState, setModalState] = useState<ModalState | null>(null);
+    const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
+    
     const { users, addUser, updateUser, deleteUser } = useUsers();
     const { roles, addRole, updateRole, deleteRole } = useRoles();
     const { clients } = useClients();
     const { locations } = useLocations();
+
+    const { activeUsers, pendingUsers, unmigratedUsers } = useMemo(() => {
+        const active: User[] = [];
+        const pending: User[] = [];
+        const unmigrated: User[] = [];
+        
+        users.forEach(u => {
+            if (!isFirebaseUid(u.id)) {
+                unmigrated.push(u);
+            } else if (u.status === 'pending') {
+                pending.push(u);
+            } else if (u.status === 'active') {
+                active.push(u);
+            }
+        });
+
+        return {
+            activeUsers: active,
+            pendingUsers: pending.sort((a,b) => a.username.localeCompare(b.username)),
+            unmigratedUsers: unmigrated.sort((a,b) => a.username.localeCompare(b.username))
+        };
+    }, [users]);
+    
     const { clientUsers, staffUsers } = useMemo(() => {
         const clients: User[] = [];
         const staff: User[] = [];
-        users.forEach(u => {
+        activeUsers.forEach(u => {
             if (u.role === 'regular') {
                 clients.push(u);
             } else {
@@ -27,7 +123,33 @@ export const UserAndRoleManager = ({ canModify }: { canModify: boolean }) => {
             }
         });
         return { clientUsers: clients, staffUsers: staff };
-    }, [users]);
+    }, [activeUsers]);
+    
+    const handleLinkAndApprove = async (pendingUserId: string, legacyUserId: string) => {
+        const batch = writeBatch(db);
+
+        const pendingUserRef = doc(db, 'users', pendingUserId);
+        const legacyUserRef = doc(db, 'users', legacyUserId);
+
+        const legacyUserSnap = await getDoc(legacyUserRef);
+        if (!legacyUserSnap.exists()) {
+            throw new Error("Legacy user data not found.");
+        }
+        
+        const legacyData = legacyUserSnap.data() as User;
+        const { id, password, username, ...dataToMerge } = legacyData;
+
+        // Update the new user's document with the merged data and set status to active
+        batch.update(pendingUserRef, { ...dataToMerge, status: 'active' });
+
+        // Delete the old legacy user document
+        batch.delete(legacyUserRef);
+
+        await batch.commit();
+        alert('User linked and approved successfully!');
+        setIsMigrationModalOpen(false); // Close the modal on success
+    };
+
 
     const handleSaveUser = async (data: User | Omit<User, 'id'>) => {
         if (!canModify) return;
@@ -92,6 +214,16 @@ export const UserAndRoleManager = ({ canModify }: { canModify: boolean }) => {
                    {modalContent()}
                 </Modal>
             }
+             {isMigrationModalOpen && (
+                <Modal isOpen={true} onClose={() => setIsMigrationModalOpen(false)} title="User Approval & Migration" size="xl">
+                    <MigrationAndApprovalTool
+                        pendingUsers={pendingUsers}
+                        legacyUsers={unmigratedUsers}
+                        onLinkAndApprove={handleLinkAndApprove}
+                        onClose={() => setIsMigrationModalOpen(false)}
+                    />
+                </Modal>
+            )}
             <div className="border-b border-warm-gray-200 dark:border-warm-gray-700 mb-6">
                 <nav className="-mb-px flex space-x-8">
                      <button onClick={() => setActiveTab('users')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'users' ? 'border-primary-500 text-primary-600' : 'border-transparent text-warm-gray-500 hover:text-warm-gray-700'}`}>Users</button>
@@ -100,6 +232,22 @@ export const UserAndRoleManager = ({ canModify }: { canModify: boolean }) => {
             </div>
             {activeTab === 'users' ? 
                 <div className="space-y-8">
+                     {(pendingUsers.length > 0 || unmigratedUsers.length > 0) && canModify && (
+                        <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <AlertTriangle className="text-yellow-600 dark:text-yellow-400" />
+                                <div>
+                                    <p className="font-bold text-yellow-800 dark:text-yellow-200">Action Required</p>
+                                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                                        {pendingUsers.length} user(s) awaiting approval. {unmigratedUsers.length} legacy user(s) need migration.
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsMigrationModalOpen(true)} className={primaryButton}>
+                                <GitMerge size={16}/> Manage Approvals & Migrations
+                            </button>
+                        </div>
+                    )}
                     <UserTable title="Staff Users" users={staffUsers} onAdd={() => setModalState({ type: 'user', data: null })} onEdit={(u) => setModalState({ type: 'user', data: u})} onDelete={handleDeleteUser} canModify={canModify} roles={roles} />
                     <UserTable title="Client Users" users={clientUsers} onAdd={null} onEdit={null} onDelete={handleDeleteClientUser} canModify={canModify} roles={roles}/>
                 </div>
@@ -129,19 +277,22 @@ const UserTable = ({ title, users, onAdd, onEdit, onDelete, canModify, roles }: 
                 <tbody className="divide-y divide-warm-gray-200 dark:divide-warm-gray-700">
                     {users.slice().sort((a,b) => a.username.localeCompare(b.username)).map(user => {
                         const roleName = user.role === 'staff' ? roles.find(r => r.id === user.roleId)?.name : (user.role.charAt(0).toUpperCase() + user.role.slice(1));
+                        
                         return (
                             <tr key={user.id}>
-                                <td className="px-4 py-2">{user.username}</td>
+                                <td className="px-4 py-2 flex items-center gap-2">
+                                    {user.username}
+                                </td>
                                 <td className="px-4 py-2">{roleName || user.role}</td>
                                 <td className="px-4 py-2">{user.status}</td>
                                 {canModify && <td className="px-4 py-2 text-right">
                                     <div className="flex justify-end gap-1">
-                                        {user.username !== 'admin' && onEdit && (
+                                        {user.username !== 'admin@kumkuma.com' && onEdit && (
                                             <button onClick={() => onEdit(user)} className={iconButton('hover:bg-primary-100 dark:hover:bg-primary-800')} title="Edit User">
                                                 <Edit size={16} className="text-primary-600" />
                                             </button>
                                         )}
-                                        {user.username !== 'admin' && onDelete && (
+                                        {user.username !== 'admin@kumkuma.com' && onDelete && (
                                             <button onClick={() => onDelete(user.id)} className={iconButton('hover:bg-accent-100 dark:hover:bg-accent-800')} title="Delete User">
                                                 <Trash2 size={16} className="text-accent-500" />
                                             </button>
@@ -194,7 +345,6 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
         e.preventDefault();
         const data: Partial<User> & {password?: string} = { 
             username, 
-            password, 
             role, 
             status, 
             roleId: role === 'staff' ? roleId : undefined, 
@@ -203,9 +353,13 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
         };
         
         if (user) {
-            onSave({ ...data, id: user.id });
+             onSave({ ...user, ...data });
         } else {
-            onSave(data);
+            if (!password) {
+                alert('Password is required for new users.');
+                return;
+            }
+            onSave({ ...data, password });
         }
     };
 
@@ -215,7 +369,7 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
     
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="text" placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} required className={inputStyle} readOnly={!!user}/>
+            <input type="text" placeholder="Username (must be an email)" value={username} onChange={e=>setUsername(e.target.value)} required className={inputStyle} readOnly={!!user}/>
             <input type="password" placeholder={user ? "New Password (optional)" : "Password"} value={password} onChange={e=>setPassword(e.target.value)} required={!user} className={inputStyle}/>
             <select value={role} onChange={e=>setRole(e.target.value as any)} className={inputStyle}>
                 <option value="admin">Admin</option>
@@ -225,6 +379,7 @@ const UserForm = ({ onSave, onCancel, user, roles, locations }: { onSave:(u:any)
              <select value={status} onChange={e=>setStatus(e.target.value as any)} className={inputStyle}>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
+                 <option value="pending">Pending</option>
             </select>
 
             {role === 'staff' && (

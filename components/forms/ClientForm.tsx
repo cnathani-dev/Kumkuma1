@@ -26,6 +26,7 @@ export const ClientForm = ({ onSave, onCancel, client, saveButtonText }: {
     const [hasSystemAccess, setHasSystemAccess] = useState(client?.hasSystemAccess || false);
     const [status, setStatus] = useState<'active' | 'inactive'>(client?.status || 'active');
     const [phoneError, setPhoneError] = useState('');
+    const [isAdvanceClient, setIsAdvanceClient] = useState(client?.isAdvanceClient || false);
 
     const validatePhone = (phoneNumber: string) => {
         if (!phoneNumber) {
@@ -64,6 +65,7 @@ export const ClientForm = ({ onSave, onCancel, client, saveButtonText }: {
             referredBy: referredBy,
             hasSystemAccess,
             status,
+            isAdvanceClient,
         };
 
         if (client && 'id' in client) {
@@ -130,6 +132,19 @@ export const ClientForm = ({ onSave, onCancel, client, saveButtonText }: {
             </div>
              {hasSystemAccess && <p className="text-xs text-warm-gray-500">If checked, a "regular" user account will be created using the phone number as the username and password.</p>}
             
+             <div className="flex items-center pt-2">
+                <input
+                    id="isAdvanceClient"
+                    type="checkbox"
+                    checked={isAdvanceClient}
+                    onChange={e => setIsAdvanceClient(e.target.checked)}
+                    className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                />
+                <label htmlFor="isAdvanceClient" className="ml-2 block text-sm text-warm-gray-900 dark:text-warm-gray-200">
+                    Enable Client-Level Advance Payments
+                </label>
+            </div>
+
             <div className="flex justify-end gap-3 pt-4">
                 <button type="button" onClick={onCancel} className={secondaryButton}>Cancel</button>
                 <button type="submit" className={primaryButton}><Save size={18}/> {saveButtonText || 'Save Client'}</button>

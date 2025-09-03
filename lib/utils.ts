@@ -1,5 +1,7 @@
 
 
+import { Event } from '../types';
+
 /**
  * Recursively removes properties with `undefined` values from an object.
  * This is useful for preparing objects to be saved to Firestore, which doesn't allow `undefined`.
@@ -127,4 +129,26 @@ export const formatDateRange = (startDate: string, endDate?: string | null): str
     }
     
     return `${startMonth} ${start.getDate()} to ${end.getDate()}, ${startYear}`;
+};
+
+export const calculateFinancials = (event: Event) => {
+    const model = event.pricingModel || 'variable';
+    const pax = event.pax || 0;
+    const perPax = event.perPaxPrice || 0;
+    const rent = event.rent || 0;
+    
+    let baseCost = 0;
+    if (model === 'variable') baseCost = pax * perPax;
+    else if (model === 'flat') baseCost = rent;
+    else if (model === 'mix') baseCost = rent + (pax * perPax);
+
+    const totalCharges = (event.charges || []).filter(c => !c.isDeleted).reduce((sum, charge) => sum + charge.amount, 0);
+    const totalPayments = (event.transactions || []).filter(t => t.type === 'income' && !t.isDeleted).reduce((sum, payment) => sum + payment.amount, 0);
+    const totalExpenses = (event.transactions || []).filter(t => t.type === 'expense' && !t.isDeleted).reduce((sum, expense) => sum + expense.amount, 0);
+
+    const totalBill = baseCost + totalCharges;
+    const balanceDue = totalBill - totalPayments;
+    const profit = totalBill - totalExpenses;
+
+    return { totalBill, totalPayments, totalExpenses, balanceDue, profit };
 };

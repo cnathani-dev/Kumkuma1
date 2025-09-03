@@ -1,6 +1,8 @@
-// @ts-ignore
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+
+console.log("firebase.ts: Firebase modules loaded.");
 
 // IMPORTANT: Replace this with your own Firebase project configuration.
 // You can find this in your Firebase project settings.
@@ -14,10 +16,20 @@ const firebaseConfig = {
   measurementId: "G-SP68RL7C43"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase using the v9+ modular SDK, ensuring it only runs once.
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+if (!getApps().length) {
+    // This part of the if is now only for the console.log
+    console.log("firebase.ts: Firebase app initialized.");
+} else {
+    console.log("firebase.ts: Firebase app already initialized.");
+}
 
-// Initialize Cloud Firestore and get a reference to the service
+
+// Initialize Cloud Firestore and get a reference to the service.
 const db = getFirestore(app);
+const auth = getAuth(app);
 
-export { db };
+console.log("firebase.ts: db and auth services exported.", { db, auth });
+
+export { db, auth };

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTemplates, useEvents, useClients, useRestaurants } from '../contexts/AppContexts';
-import { useAuth, useUserPermissions } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useUserPermissions } from '../hooks/usePermissions';
 import { Event, EventState, UserRole } from '../types';
 import { FileEdit, Salad, Banknote, Lock, Unlock, Edit, Trash2, BadgeHelp, BadgeCheck, BadgeX, Calendar, Clock, MapPin, Users, ConciergeBell, ChefHat, Copy, BadgeAlert, CheckCircle, XCircle, Ban, FileWarning } from 'lucide-react';
 import { formatDateRange } from '../lib/utils';
